@@ -1,8 +1,12 @@
-import faiss
-import json
-import numpy as np
 import sys
-from sentence_transformers import SentenceTransformer
+import re
+from git_utils import (
+    get_latest_commits,
+    get_file_history,
+    get_latest_file_content,
+    get_file_diff
+)
+from llm_utils import ask_llm
 
 if len(sys.argv) < 2:
     print("Usage: python agent.py \"your question\"")
@@ -10,46 +14,118 @@ if len(sys.argv) < 2:
 
 question = sys.argv[1].lower()
 
-# Load metadata
-with open("data/meta.json", "r") as f:
-    metadata = json.load(f)
+# -------------------------
+# Intent Detection
+# -------------------------
 
-# ------------------------------
-# 1️⃣ Check if question mentions a file directly
-# ------------------------------
-for entry in metadata:
-    if entry["commit_id"] == "LATEST_VERSION":
-        file_name = entry["file_path"].split("/")[-1].lower()
+def extract_file_name(text):
+    match = re.search(r'\b[\w\-\/]+\.c\b|\b[\w\-\/]+\.py\b|\b[\w\-\/]+\.md\b', text)
+    return match.group(0) if match else None
 
-        if file_name in question:
-            print("\nLatest Version Found:\n")
-            print("File:", entry["file_path"])
-            print("\nFull Content:\n")
-            print(entry["content"])
-            sys.exit(0)
 
-# ------------------------------
-# 2️⃣ Otherwise use semantic search
-# ------------------------------
+file_name = extract_file_name(question)
 
-model = SentenceTransformer("all-MiniLM-L6-v2")
-index = faiss.read_index("data/index.faiss")
+# -------------------------
+# 1️⃣ Latest commits
+# -------------------------
+if "latest commit" in question or "recent commit" in question:
+    commits = get_latest_commits(5)
 
-query_vector = model.encode([question])
-query_vector = np.array(query_vector).astype("float32")
-
-D, I = index.search(query_vector, k=3)
-
-print("\nTop Relevant Results:\n")
-
-for idx in I[0]:
-    result = metadata[idx]
+    print("\nLatest 5 Commits:\n")
+    for c in commits:
+        print("--------------------------------------------------")
+        print("Commit ID:", c["commit_id"])
+        print("Author:", c["author"])
+        print("Date:", c["date"])
+        print("Message:", c["message"])
     print("--------------------------------------------------")
-    print("Commit ID:", result["commit_id"])
-    print("Author:", result["author"])
-    print("Date:", result["date"])
-    print("File:", result["file_path"])
-    print("Message:", result["message"])
-    print("\nContent Preview:\n")
-    print(result["content"][:800])
-    print("--------------------------------------------------\n")
+    sys.exit(0)
+
+
+# -------------------------
+# 2️⃣ Who modified file
+# -------------------------
+if "who modified" in question and file_name:
+    history = get_file_history(file_name)
+
+    if not history:
+        print("No history found for", file_name)
+        sys.exit(0)
+
+    print(f"\nModification History for {file_name}:\n")
+
+    for h in history:
+        print("--------------------------------------------------")
+        print("Commit ID:", h["commit_id"])
+        print("Author:", h["author"])
+        print("Date:", h["date"])
+        print("Message:", h["message"])
+    print("--------------------------------------------------")
+    sys.exit(0)
+
+
+# -------------------------
+# 3️⃣ Explain file logic
+# -------------------------
+if ("what does" in question or "explain" in question) and file_name:
+    content = get_latest_file_content(file_name)
+
+    if not content:
+        print("File not found:", file_name)
+        sys.exit(0)
+
+    prompt = f"""
+You are a senior software engineer.
+
+Analyze the following code and explain clearly:
+- What the program does
+- Any logical mistakes
+- Any improvements needed
+
+Code:
+{content}
+"""
+
+    answer = ask_llm(prompt)
+    print("\nAI Analysis:\n")
+    print(answer)
+    sys.exit(0)
+
+
+# -------------------------
+# 4️⃣ What changed in file
+# -------------------------
+if "what changed" in question and file_name:
+    history = get_file_history(file_name)
+
+    if not history:
+        print("No history found.")
+        sys.exit(0)
+
+    latest_commit = history[0]["commit_id"]
+    diffs = get_file_diff(latest_commit)
+
+    print(f"\nLatest Changes in {file_name}:\n")
+
+    for d in diffs:
+        if file_name in d["file"]:
+            print(d["diff"])
+
+    sys.exit(0)
+
+
+# -------------------------
+# 5️⃣ Fallback → LLM
+# -------------------------
+prompt = f"""
+You are an intelligent Git repository assistant.
+
+User question:
+{question}
+
+Answer intelligently.
+"""
+
+answer = ask_llm(prompt)
+print("\nAI Response:\n")
+print(answer)
