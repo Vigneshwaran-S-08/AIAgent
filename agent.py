@@ -10,30 +10,27 @@ if len(sys.argv) < 2:
 
 question = sys.argv[1]
 
-# Load model
 model = SentenceTransformer("all-MiniLM-L6-v2")
 
-# Load FAISS index
 index = faiss.read_index("data/index.faiss")
 
-# Load metadata
 with open("data/meta.json", "r") as f:
     metadata = json.load(f)
 
-# Embed question
 query_vector = model.encode([question])
 query_vector = np.array(query_vector).astype("float32")
 
-# Search
 D, I = index.search(query_vector, k=3)
 
-print("\nTop Relevant Commits:\n")
+print("\nTop Relevant Results:\n")
 
 for idx in I[0]:
-    commit = metadata[idx]
+    result = metadata[idx]
     print("--------------------------------------------------")
-    print("Commit ID:", commit["commit_id"])
-    print("Author:", commit["author"])
-    print("Date:", commit["date"])
-    print("Message:", commit["message"])
+    print("Commit ID:", result["commit_id"])
+    print("Author:", result["author"])
+    print("Date:", result["date"])
+    print("File:", result["file_path"])
+    print("Message:", result["message"])
+    print("Diff:\n", result["diff"][:500])
     print("--------------------------------------------------\n")
