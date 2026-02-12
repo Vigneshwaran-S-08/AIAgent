@@ -12,17 +12,24 @@ for commit in repo.iter_commits():
         "author": commit.author.name,
         "date": str(commit.committed_datetime),
         "message": commit.message,
-        "files": []
+        "changes": []
     }
 
     for parent in commit.parents:
         diffs = parent.diff(commit, create_patch=True)
+
         for diff in diffs:
-            file_change = {
+            try:
+                diff_text = diff.diff.decode("utf-8", errors="ignore")
+            except:
+                diff_text = ""
+
+            change = {
                 "file_path": diff.a_path,
-                "diff": diff.diff.decode("utf-8", errors="ignore")
+                "diff": diff_text
             }
-            commit_data["files"].append(file_change)
+
+            commit_data["changes"].append(change)
 
     data.append(commit_data)
 
@@ -31,5 +38,4 @@ os.makedirs("data", exist_ok=True)
 with open("data/repo_data.json", "w") as f:
     json.dump(data, f, indent=2)
 
-print("Repository indexed successfully.")
-
+print("Repository indexed with diffs successfully.")
