@@ -3,7 +3,8 @@ import os
 import re
 
 # 🔧 Set your repository path here
-REPO_PATH = "/absolute/path/to/your/repo"   # <-- CHANGE THIS
+REPO_PATH = "/home/spanidea/AIAgent"
+
 
 
 # =========================
