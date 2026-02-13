@@ -1,221 +1,126 @@
-import subprocess
-import os
+import sys
 import re
-
-# 🔧 Set your repository path here
-REPO_PATH = "/home/spanidea/AIAgent"
-
-
-
-# =========================
-# 🔹 LLM FUNCTION (Concise)
-# =========================
-def ask_llm(user_prompt):
-    strict_prompt = f"""
-You are a professional Git and code assistant.
-
-Rules:
-- Be concise and precise.
-- Maximum 5-6 sentences.
-- No unnecessary explanation.
-- Use bullet points if helpful.
-- Be technical and clean.
-
-Task:
-{user_prompt}
-"""
-
-    result = subprocess.run(
-        ["ollama", "run", "mistral"],   # change model if needed
-        input=strict_prompt,
-        text=True,
-        capture_output=True
-    )
-
-    return result.stdout.strip()
+from git_utils import (
+    get_latest_commits,
+    get_file_history,
+    get_latest_file_content,
+    get_file_diff
+)
+from llm_utils import ask_llm
 
 
-# =========================
-# 🔹 GIT FUNCTIONS
-# =========================
+if len(sys.argv) < 2:
+    print("Usage: python agent.py \"your question\"")
+    sys.exit(1)
 
-def who_modified_file(filename):
-    result = subprocess.run(
-        ["git", "log", "--pretty=format:%h - %an - %s", "--", filename],
-        capture_output=True,
-        text=True,
-        cwd=REPO_PATH
-    )
-
-    if not result.stdout.strip():
-        return f"No commits found for {filename}"
-
-    return result.stdout.strip()
+question = sys.argv[1].lower()
 
 
-def latest_commits(n=5):
-    result = subprocess.run(
-        ["git", "log", f"-n{n}", "--pretty=format:%h - %an - %s"],
-        capture_output=True,
-        text=True,
-        cwd=REPO_PATH
-    )
-
-    return result.stdout.strip()
+# -------------------------
+# Extract file name
+# -------------------------
+def extract_file_name(text):
+    match = re.search(r'\b[\w\-]+\.c\b|\b[\w\-]+\.py\b|\b[\w\-]+\.md\b', text)
+    return match.group(0) if match else None
 
 
-def summarize_recent_commits(n=5):
-    result = subprocess.run(
-        ["git", "log", f"-n{n}", "--pretty=format:%h - %s"],
-        capture_output=True,
-        text=True,
-        cwd=REPO_PATH
-    )
-
-    commits = result.stdout.strip()
-
-    prompt = f"""
-Summarize the following recent commits briefly:
-
-{commits}
-"""
-    return ask_llm(prompt)
+file_name = extract_file_name(question)
 
 
-def explain_last_commit_diff():
-    result = subprocess.run(
-        ["git", "show"],
-        capture_output=True,
-        text=True,
-        cwd=REPO_PATH
-    )
+# -------------------------
+# 1️⃣ Latest commits
+# -------------------------
+if "latest commit" in question or "recent commit" in question:
+    commits = get_latest_commits(5)
 
-    diff = result.stdout
-
-    prompt = f"""
-Explain what changed in this commit and its impact:
-
-{diff}
-"""
-    return ask_llm(prompt)
-
-
-def get_current_branch():
-    result = subprocess.run(
-        ["git", "branch", "--show-current"],
-        capture_output=True,
-        text=True,
-        cwd=REPO_PATH
-    )
-
-    return f"Current branch: {result.stdout.strip()}"
+    print("\nLatest 5 Commits:\n")
+    for c in commits:
+        print("--------------------------------------------------")
+        print("Commit ID:", c["commit_id"])
+        print("Author:", c["author"])
+        print("Date:", c["date"])
+        print("Message:", c["message"])
+    print("--------------------------------------------------")
+    sys.exit(0)
 
 
-def compare_branches(branch1, branch2):
-    result = subprocess.run(
-        ["git", "diff", f"{branch1}..{branch2}"],
-        capture_output=True,
-        text=True,
-        cwd=REPO_PATH
-    )
+# -------------------------
+# 2️⃣ Who modified file
+# -------------------------
+if "who modified" in question and file_name:
+    history = get_file_history(file_name)
 
-    diff = result.stdout.strip()
+    if not history:
+        print(f"No history found for {file_name}")
+        sys.exit(0)
 
-    if not diff:
-        return f"No differences between {branch1} and {branch2}"
+    print(f"\nModification History for {file_name}:\n")
 
-    prompt = f"""
-Summarize the key differences between branches {branch1} and {branch2}:
-
-{diff}
-"""
-    return ask_llm(prompt)
-
-
-# =========================
-# 🔹 FILE CONTENT HANDLER
-# =========================
-
-def explain_file(filename):
-    full_path = os.path.join(REPO_PATH, filename)
-
-    if not os.path.exists(full_path):
-        return f"File {filename} not found."
-
-    with open(full_path, "r", encoding="utf-8", errors="ignore") as f:
-        code = f.read()
-
-    prompt = f"""
-Explain what this file does briefly and clearly:
-
-{code}
-"""
-    return ask_llm(prompt)
+    for h in history:
+        print("--------------------------------------------------")
+        print("Commit ID:", h["commit_id"])
+        print("Author:", h["author"])
+        print("Date:", h["date"])
+        print("Message:", h["message"])
+    print("--------------------------------------------------")
+    sys.exit(0)
 
 
-# =========================
-# 🔹 INTENT ROUTER
-# =========================
+# -------------------------
+# 3️⃣ What changed in file
+# -------------------------
+if "what changed" in question and file_name:
+    history = get_file_history(file_name)
 
-def handle_question(question):
-    q = question.lower()
+    if not history:
+        print(f"No history found for {file_name}")
+        sys.exit(0)
 
-    # Who modified file
-    if "who modified" in q:
-        match = re.search(r"who modified (.+)", q)
-        if match:
-            filename = match.group(1).strip()
-            return who_modified_file(filename)
+    latest_commit = history[0]["commit_id"]
+    diffs = get_file_diff(latest_commit, file_name)
 
-    # Latest commits
-    elif "latest commits" in q:
-        return latest_commits()
+    print(f"\nLatest Changes in {file_name}:\n")
 
-    # Summarize commits
-    elif "summarize commits" in q:
-        return summarize_recent_commits()
-
-    # Explain last commit
-    elif "explain last commit" in q:
-        return explain_last_commit_diff()
-
-    # Current branch
-    elif "current branch" in q:
-        return get_current_branch()
-
-    # Compare branches (basic parsing)
-    elif "compare branches" in q:
-        parts = q.split()
-        if len(parts) >= 4:
-            return compare_branches(parts[-2], parts[-1])
-        else:
-            return "Usage: compare branches branch1 branch2"
-
-    # Explain file
-    elif "what does" in q and ".c" in q:
-        match = re.search(r"what does (.+) do", q)
-        if match:
-            filename = match.group(1).strip()
-            return explain_file(filename)
-
-    # Default → LLM reasoning
+    if not diffs:
+        print("No changes found.")
     else:
-        return ask_llm(question)
+        for diff in diffs:
+            print(diff)
+
+    sys.exit(0)
 
 
-# =========================
-# 🔹 INTERACTIVE MODE
-# =========================
+# -------------------------
+# 4️⃣ Explain file logic
+# -------------------------
+if ("what does" in question or "explain" in question) and file_name:
+    content = get_latest_file_content(file_name)
 
-if __name__ == "__main__":
-    print("\n🚀 AI Git Assistant (type 'exit' to quit)\n")
+    if not content:
+        print(f"File not found: {file_name}")
+        sys.exit(0)
 
-    while True:
-        question = input(">> ")
+    prompt = f"""
+You are a senior software engineer.
 
-        if question.lower() == "exit":
-            print("Goodbye.")
-            break
+Analyze this code and explain:
+1. What it does
+2. Logical mistakes
+3. Improvements needed
 
-        response = handle_question(question)
-        print("\n" + response + "\n")
+Code:
+{content}
+"""
+
+    answer = ask_llm(prompt)
+    print("\nAI Analysis:\n")
+    print(answer)
+    sys.exit(0)
+
+
+# -------------------------
+# 5️⃣ Fallback → LLM
+# -------------------------
+answer = ask_llm(question)
+print("\nAI Response:\n")
+print(answer)
