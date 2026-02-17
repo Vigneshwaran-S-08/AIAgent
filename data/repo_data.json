@@ -1,0 +1,661 @@
+[
+  {
+    "commit_id": "fba9eecb6bc0ee6b2a81bfdd9abf4e7f26d8359c",
+    "author": "Vigneshwaran-S-08",
+    "date": "2026-02-13 15:45:52+05:30",
+    "message": "Refactor agent.py for enhanced Git interaction\n\nRefactor agent.py to improve functionality and structure. Added new utility functions for handling Git operations and improved user input handling.",
+    "changes": [
+      {
+        "file_path": "agent.py",
+        "content": "@@ -1,221 +1,126 @@\n-import subprocess\n-import os\n+import sys\n import re\n+from git_utils import (\n+    get_latest_commits,\n+    get_file_history,\n+    get_latest_file_content,\n+    get_file_diff\n+)\n+from llm_utils import ask_llm\n \n-# \ud83d\udd27 Set your repository path here\n-REPO_PATH = \"/home/spanidea/AIAgent\"\n \n+if len(sys.argv) < 2:\n+    print(\"Usage: python agent.py \\\"your question\\\"\")\n+    sys.exit(1)\n \n+question = sys.argv[1].lower()\n \n-# =========================\n-# \ud83d\udd39 LLM FUNCTION (Concise)\n-# =========================\n-def ask_llm(user_prompt):\n-    strict_prompt = f\"\"\"\n-You are a professional Git and code assistant.\n \n-Rules:\n-- Be concise and precise.\n-- Maximum 5-6 sentences.\n-- No unnecessary explanation.\n-- Use bullet points if helpful.\n-- Be technical and clean.\n-\n-Task:\n-{user_prompt}\n-\"\"\"\n-\n-    result = subprocess.run(\n-        [\"ollama\", \"run\", \"mistral\"],   # change model if needed\n-        input=strict_prompt,\n-        text=True,\n-        capture_output=True\n-    )\n-\n-    return result.stdout.strip()\n+# -------------------------\n+# Extract file name\n+# -------------------------\n+def extract_file_name(text):\n+    match = re.search(r'\\b[\\w\\-]+\\.c\\b|\\b[\\w\\-]+\\.py\\b|\\b[\\w\\-]+\\.md\\b', text)\n+    return match.group(0) if match else None\n \n \n-# =========================\n-# \ud83d\udd39 GIT FUNCTIONS\n-# =========================\n+file_name = extract_file_name(question)\n \n-def who_modified_file(filename):\n-    result = subprocess.run(\n-        [\"git\", \"log\", \"--pretty=format:%h - %an - %s\", \"--\", filename],\n-        capture_output=True,\n-        text=True,\n-        cwd=REPO_PATH\n-    )\n \n-    if not result.stdout.strip():\n-        return f\"No commits found for {filename}\"\n+# -------------------------\n+# 1\ufe0f\u20e3 Latest commits\n+# -------------------------\n+if \"latest commit\" in question or \"recent commit\" in question:\n+    commits = get_latest_commits(5)\n \n-    return result.stdout.strip()\n+    print(\"\\nLatest 5 Commits:\\n\")\n+    for c in commits:\n+        print(\"--------------------------------------------------\")\n+        print(\"Commit ID:\", c[\"commit_id\"])\n+        print(\"Author:\", c[\"author\"])\n+        print(\"Date:\", c[\"date\"])\n+        print(\"Message:\", c[\"message\"])\n+    print(\"--------------------------------------------------\")\n+    sys.exit(0)\n \n \n-def latest_commits(n=5):\n-    result = subprocess.run(\n-        [\"git\", \"log\", f\"-n{n}\", \"--pretty=format:%h - %an - %s\"],\n-        capture_output=True,\n-        text=True,\n-        cwd=REPO_PATH\n-    )\n+# -------------------------\n+# 2\ufe0f\u20e3 Who modified file\n+# -------------------------\n+if \"who modified\" in question and file_name:\n+    history = get_file_history(file_name)\n \n-    return result.stdout.strip()\n+    if not history:\n+        print(f\"No history found for {file_name}\")\n+        sys.exit(0)\n \n+    print(f\"\\nModification History for {file_name}:\\n\")\n \n-def summarize_recent_commits(n=5):\n-    result = subprocess.run(\n-        [\"git\", \"log\", f\"-n{n}\", \"--pretty=format:%h - %s\"],\n-        capture_output=True,\n-        text=True,\n-        cwd=REPO_PATH\n-    )\n+    for h in history:\n+        print(\"--------------------------------------------------\")\n+        print(\"Commit ID:\", h[\"commit_id\"])\n+        print(\"Author:\", h[\"author\"])\n+        print(\"Date:\", h[\"date\"])\n+        print(\"Message:\", h[\"message\"])\n+    print(\"--------------------------------------------------\")\n+    sys.exit(0)\n \n-    commits = result.stdout.strip()\n \n-    prompt = f\"\"\"\n-Summarize the following recent commits briefly:\n-\n-{commits}\n-\"\"\"\n-    return ask_llm(prompt)\n+# -------------------------\n+# 3\ufe0f\u20e3 What changed in file\n+# -------------------------\n+if \"what changed\" in question and file_name:\n+    history = get_file_history(file_name)\n \n+    if not history:\n+        print(f\"No history found for {file_name}\")\n+        sys.exit(0)\n \n-def explain_last_commit_diff():\n-    result = subprocess.run(\n-        [\"git\", \"show\"],\n-        capture_output=True,\n-        text=True,\n-        cwd=REPO_PATH\n-    )\n-\n-    diff = result.stdout\n-\n-    prompt = f\"\"\"\n-Explain what changed in this commit and its impact:\n-\n-{diff}\n-\"\"\"\n-    return ask_llm(prompt)\n-\n+    latest_commit = history[0][\"commit_id\"]\n+    diffs = get_file_diff(latest_commit, file_name)\n \n-def get_current_branch():\n-    result = subprocess.run(\n-        [\"git\", \"branch\", \"--show-current\"],\n-        capture_output=True,\n-        text=True,\n-        cwd=REPO_PATH\n-    )\n+    print(f\"\\nLatest Changes in {file_name}:\\n\")\n \n-    return f\"Current branch: {result.stdout.strip()}\"\n+    if not diffs:\n+        print(\"No changes found.\")\n+    else:\n+        for diff in diffs:\n+            print(diff)\n \n+    sys.exit(0)\n \n-def compare_branches(branch1, branch2):\n-    result = subprocess.run(\n-        [\"git\", \"diff\", f\"{branch1}..{branch2}\"],\n-        capture_output=True,\n-        text=True,\n-        cwd=REPO_PATH\n-    )\n \n-    diff = result.stdout.strip()\n+# -------------------------\n+# 4\ufe0f\u20e3 Explain file logic\n+# -------------------------\n+if (\"what does\" in question or \"explain\" in question) and file_name:\n+    content = get_latest_file_content(file_name)\n \n-    if not diff:\n-        return f\"No differences between {branch1} and {branch2}\"\n+    if not content:\n+        print(f\"File not found: {file_name}\")\n+        sys.exit(0)\n \n     prompt = f\"\"\"\n-Summarize the key differences between branches {branch1} and {branch2}:\n-\n-{diff}\n-\"\"\"\n-    return ask_llm(prompt)\n-\n-\n-# =========================\n-# \ud83d\udd39 FILE CONTENT HANDLER\n-# =========================\n-\n-def explain_file(filename):\n-    full_path = os.path.join(REPO_PATH, filename)\n-\n-    if not os.path.exists(full_path):\n-        return f\"File {filename} not found.\"\n+You are a senior software engineer.\n \n-    with open(full_path, \"r\", encoding=\"utf-8\", errors=\"ignore\") as f:\n-        code = f.read()\n+Analyze this code and explain:\n+1. What it does\n+2. Logical mistakes\n+3. Improvements needed\n \n-    prompt = f\"\"\"\n-Explain what this file does briefly and clearly:\n-\n-{code}\n+Code:\n+{content}\n \"\"\"\n-    return ask_llm(prompt)\n-\n-\n-# =========================\n-# \ud83d\udd39 INTENT ROUTER\n-# =========================\n-\n-def handle_question(question):\n-    q = question.lower()\n-\n-    # Who modified file\n-    if \"who modified\" in q:\n-        match = re.search(r\"who modified (.+)\", q)\n-        if match:\n-            filename = match.group(1).strip()\n-            return who_modified_file(filename)\n-\n-    # Latest commits\n-    elif \"latest commits\" in q:\n-        return latest_commits()\n-\n-    # Summarize commits\n-    elif \"summarize commits\" in q:\n-        return summarize_recent_commits()\n-\n-    # Explain last commit\n-    elif \"explain last commit\" in q:\n-        return explain_last_commit_diff()\n-\n-    # Current branch\n-    elif \"current branch\" in q:\n-        return get_current_branch()\n-\n-    # Compare branches (basic parsing)\n-    elif \"compare branches\" in q:\n-        parts = q.split()\n-        if len(parts) >= 4:\n-            return compare_branches(parts[-2], parts[-1])\n-        else:\n-            return \"Usage: compare branches branch1 branch2\"\n-\n-    # Explain file\n-    elif \"what does\" in q and \".c\" in q:\n-        match = re.search(r\"what does (.+) do\", q)\n-        if match:\n-            filename = match.group(1).strip()\n-            return explain_file(filename)\n-\n-    # Default \u2192 LLM reasoning\n-    else:\n-        return ask_llm(question)\n-\n-\n-# =========================\n-# \ud83d\udd39 INTERACTIVE MODE\n-# =========================\n-\n-if __name__ == \"__main__\":\n-    print(\"\\n\ud83d\ude80 AI Git Assistant (type 'exit' to quit)\\n\")\n \n-    while True:\n-        question = input(\">> \")\n+    answer = ask_llm(prompt)\n+    print(\"\\nAI Analysis:\\n\")\n+    print(answer)\n+    sys.exit(0)\n \n-        if question.lower() == \"exit\":\n-            print(\"Goodbye.\")\n-            break\n \n-        response = handle_question(question)\n-        print(\"\\n\" + response + \"\\n\")\n+# -------------------------\n+# 5\ufe0f\u20e3 Fallback \u2192 LLM\n+# -------------------------\n+answer = ask_llm(question)\n+print(\"\\nAI Response:\\n\")\n+print(answer)\n"
+      }
+    ]
+  },
+  {
+    "commit_id": "19617e3df42ec8313a06a478cd56122ab3469e86",
+    "author": "Vigneshwaran-S-08",
+    "date": "2026-02-13 14:52:55+05:30",
+    "message": "Update repository path in agent.py",
+    "changes": [
+      {
+        "file_path": "agent.py",
+        "content": "@@ -3,7 +3,8 @@ import os\n import re\n \n # \ud83d\udd27 Set your repository path here\n-REPO_PATH = \"/absolute/path/to/your/repo\"   # <-- CHANGE THIS\n+REPO_PATH = \"/home/spanidea/AIAgent\"\n+\n \n \n # =========================\n"
+      }
+    ]
+  },
+  {
+    "commit_id": "20608b40f1d81ac74b0de987555a7787ef9ef5f9",
+    "author": "Vigneshwaran-S-08",
+    "date": "2026-02-13 14:51:22+05:30",
+    "message": "Refactor agent.py to use subprocess for Git commands",
+    "changes": [
+      {
+        "file_path": "agent.py",
+        "content": "@@ -1,126 +1,220 @@\n-import sys\n+import subprocess\n+import os\n import re\n-from git_utils import (\n-    get_latest_commits,\n-    get_file_history,\n-    get_latest_file_content,\n-    get_file_diff\n-)\n-from llm_utils import ask_llm\n \n+# \ud83d\udd27 Set your repository path here\n+REPO_PATH = \"/absolute/path/to/your/repo\"   # <-- CHANGE THIS\n \n-if len(sys.argv) < 2:\n-    print(\"Usage: python agent.py \\\"your question\\\"\")\n-    sys.exit(1)\n \n-question = sys.argv[1].lower()\n+# =========================\n+# \ud83d\udd39 LLM FUNCTION (Concise)\n+# =========================\n+def ask_llm(user_prompt):\n+    strict_prompt = f\"\"\"\n+You are a professional Git and code assistant.\n \n+Rules:\n+- Be concise and precise.\n+- Maximum 5-6 sentences.\n+- No unnecessary explanation.\n+- Use bullet points if helpful.\n+- Be technical and clean.\n \n-# -------------------------\n-# Extract file name\n-# -------------------------\n-def extract_file_name(text):\n-    match = re.search(r'\\b[\\w\\-]+\\.c\\b|\\b[\\w\\-]+\\.py\\b|\\b[\\w\\-]+\\.md\\b', text)\n-    return match.group(0) if match else None\n+Task:\n+{user_prompt}\n+\"\"\"\n \n+    result = subprocess.run(\n+        [\"ollama\", \"run\", \"mistral\"],   # change model if needed\n+        input=strict_prompt,\n+        text=True,\n+        capture_output=True\n+    )\n \n-file_name = extract_file_name(question)\n+    return result.stdout.strip()\n \n \n-# -------------------------\n-# 1\ufe0f\u20e3 Latest commits\n-# -------------------------\n-if \"latest commit\" in question or \"recent commit\" in question:\n-    commits = get_latest_commits(5)\n+# =========================\n+# \ud83d\udd39 GIT FUNCTIONS\n+# =========================\n \n-    print(\"\\nLatest 5 Commits:\\n\")\n-    for c in commits:\n-        print(\"--------------------------------------------------\")\n-        print(\"Commit ID:\", c[\"commit_id\"])\n-        print(\"Author:\", c[\"author\"])\n-        print(\"Date:\", c[\"date\"])\n-        print(\"Message:\", c[\"message\"])\n-    print(\"--------------------------------------------------\")\n-    sys.exit(0)\n+def who_modified_file(filename):\n+    result = subprocess.run(\n+        [\"git\", \"log\", \"--pretty=format:%h - %an - %s\", \"--\", filename],\n+        capture_output=True,\n+        text=True,\n+        cwd=REPO_PATH\n+    )\n \n+    if not result.stdout.strip():\n+        return f\"No commits found for {filename}\"\n \n-# -------------------------\n-# 2\ufe0f\u20e3 Who modified file\n-# -------------------------\n-if \"who modified\" in question and file_name:\n-    history = get_file_history(file_name)\n+    return result.stdout.strip()\n \n-    if not history:\n-        print(f\"No history found for {file_name}\")\n-        sys.exit(0)\n \n-    print(f\"\\nModification History for {file_name}:\\n\")\n+def latest_commits(n=5):\n+    result = subprocess.run(\n+        [\"git\", \"log\", f\"-n{n}\", \"--pretty=format:%h - %an - %s\"],\n+        capture_output=True,\n+        text=True,\n+        cwd=REPO_PATH\n+    )\n \n-    for h in history:\n-        print(\"--------------------------------------------------\")\n-        print(\"Commit ID:\", h[\"commit_id\"])\n-        print(\"Author:\", h[\"author\"])\n-        print(\"Date:\", h[\"date\"])\n-        print(\"Message:\", h[\"message\"])\n-    print(\"--------------------------------------------------\")\n-    sys.exit(0)\n+    return result.stdout.strip()\n \n \n-# -------------------------\n-# 3\ufe0f\u20e3 What changed in file\n-# -------------------------\n-if \"what changed\" in question and file_name:\n-    history = get_file_history(file_name)\n+def summarize_recent_commits(n=5):\n+    result = subprocess.run(\n+        [\"git\", \"log\", f\"-n{n}\", \"--pretty=format:%h - %s\"],\n+        capture_output=True,\n+        text=True,\n+        cwd=REPO_PATH\n+    )\n \n-    if not history:\n-        print(f\"No history found for {file_name}\")\n-        sys.exit(0)\n+    commits = result.stdout.strip()\n \n-    latest_commit = history[0][\"commit_id\"]\n-    diffs = get_file_diff(latest_commit, file_name)\n+    prompt = f\"\"\"\n+Summarize the following recent commits briefly:\n \n-    print(f\"\\nLatest Changes in {file_name}:\\n\")\n+{commits}\n+\"\"\"\n+    return ask_llm(prompt)\n \n-    if not diffs:\n-        print(\"No changes found.\")\n-    else:\n-        for diff in diffs:\n-            print(diff)\n \n-    sys.exit(0)\n+def explain_last_commit_diff():\n+    result = subprocess.run(\n+        [\"git\", \"show\"],\n+        capture_output=True,\n+        text=True,\n+        cwd=REPO_PATH\n+    )\n+\n+    diff = result.stdout\n+\n+    prompt = f\"\"\"\n+Explain what changed in this commit and its impact:\n+\n+{diff}\n+\"\"\"\n+    return ask_llm(prompt)\n+\n+\n+def get_current_branch():\n+    result = subprocess.run(\n+        [\"git\", \"branch\", \"--show-current\"],\n+        capture_output=True,\n+        text=True,\n+        cwd=REPO_PATH\n+    )\n+\n+    return f\"Current branch: {result.stdout.strip()}\"\n+\n \n+def compare_branches(branch1, branch2):\n+    result = subprocess.run(\n+        [\"git\", \"diff\", f\"{branch1}..{branch2}\"],\n+        capture_output=True,\n+        text=True,\n+        cwd=REPO_PATH\n+    )\n \n-# -------------------------\n-# 4\ufe0f\u20e3 Explain file logic\n-# -------------------------\n-if (\"what does\" in question or \"explain\" in question) and file_name:\n-    content = get_latest_file_content(file_name)\n+    diff = result.stdout.strip()\n \n-    if not content:\n-        print(f\"File not found: {file_name}\")\n-        sys.exit(0)\n+    if not diff:\n+        return f\"No differences between {branch1} and {branch2}\"\n \n     prompt = f\"\"\"\n-You are a senior software engineer.\n+Summarize the key differences between branches {branch1} and {branch2}:\n \n-Analyze this code and explain:\n-1. What it does\n-2. Logical mistakes\n-3. Improvements needed\n+{diff}\n+\"\"\"\n+    return ask_llm(prompt)\n+\n+\n+# =========================\n+# \ud83d\udd39 FILE CONTENT HANDLER\n+# =========================\n+\n+def explain_file(filename):\n+    full_path = os.path.join(REPO_PATH, filename)\n+\n+    if not os.path.exists(full_path):\n+        return f\"File {filename} not found.\"\n+\n+    with open(full_path, \"r\", encoding=\"utf-8\", errors=\"ignore\") as f:\n+        code = f.read()\n \n-Code:\n-{content}\n+    prompt = f\"\"\"\n+Explain what this file does briefly and clearly:\n+\n+{code}\n \"\"\"\n+    return ask_llm(prompt)\n+\n+\n+# =========================\n+# \ud83d\udd39 INTENT ROUTER\n+# =========================\n+\n+def handle_question(question):\n+    q = question.lower()\n+\n+    # Who modified file\n+    if \"who modified\" in q:\n+        match = re.search(r\"who modified (.+)\", q)\n+        if match:\n+            filename = match.group(1).strip()\n+            return who_modified_file(filename)\n+\n+    # Latest commits\n+    elif \"latest commits\" in q:\n+        return latest_commits()\n+\n+    # Summarize commits\n+    elif \"summarize commits\" in q:\n+        return summarize_recent_commits()\n+\n+    # Explain last commit\n+    elif \"explain last commit\" in q:\n+        return explain_last_commit_diff()\n+\n+    # Current branch\n+    elif \"current branch\" in q:\n+        return get_current_branch()\n+\n+    # Compare branches (basic parsing)\n+    elif \"compare branches\" in q:\n+        parts = q.split()\n+        if len(parts) >= 4:\n+            return compare_branches(parts[-2], parts[-1])\n+        else:\n+            return \"Usage: compare branches branch1 branch2\"\n+\n+    # Explain file\n+    elif \"what does\" in q and \".c\" in q:\n+        match = re.search(r\"what does (.+) do\", q)\n+        if match:\n+            filename = match.group(1).strip()\n+            return explain_file(filename)\n+\n+    # Default \u2192 LLM reasoning\n+    else:\n+        return ask_llm(question)\n+\n+\n+# =========================\n+# \ud83d\udd39 INTERACTIVE MODE\n+# =========================\n+\n+if __name__ == \"__main__\":\n+    print(\"\\n\ud83d\ude80 AI Git Assistant (type 'exit' to quit)\\n\")\n \n-    answer = ask_llm(prompt)\n-    print(\"\\nAI Analysis:\\n\")\n-    print(answer)\n-    sys.exit(0)\n+    while True:\n+        question = input(\">> \")\n \n+        if question.lower() == \"exit\":\n+            print(\"Goodbye.\")\n+            break\n \n-# -------------------------\n-# 5\ufe0f\u20e3 Fallback \u2192 LLM\n-# -------------------------\n-answer = ask_llm(question)\n-print(\"\\nAI Response:\\n\")\n-print(answer)\n+        response = handle_question(question)\n+        print(\"\\n\" + response + \"\\n\")\n"
+      }
+    ]
+  },
+  {
+    "commit_id": "f3a70a17ae0c40b746bcf0e521993b38be980b06",
+    "author": "Hari Krishna.D",
+    "date": "2026-02-13 12:17:17+05:30",
+    "message": "Add greeting message to hi.c",
+    "changes": [
+      {
+        "file_path": "data/hi.c",
+        "content": "@@ -3,4 +3,5 @@\n int main()\n {\n   printf(\"Hello everyone This is Vigneshwaran from Spanidea\");\n+  printf(\"hi to everyone\");\n }\n"
+      }
+    ]
+  },
+  {
+    "commit_id": "2dacae3e3b9fb70d2c5abce86e73d3b58e02034c",
+    "author": "Vigneshwaran-S-08",
+    "date": "2026-02-12 17:58:51+05:30",
+    "message": "Refactor agent.py for improved question handling\n\nRefactor question handling and improve file name extraction. Update prompts for clarity and remove redundant code for checking changes in files.",
+    "changes": [
+      {
+        "file_path": "agent.py",
+        "content": "@@ -8,23 +8,25 @@ from git_utils import (\n )\n from llm_utils import ask_llm\n \n+\n if len(sys.argv) < 2:\n     print(\"Usage: python agent.py \\\"your question\\\"\")\n     sys.exit(1)\n \n question = sys.argv[1].lower()\n \n+\n # -------------------------\n-# Intent Detection\n+# Extract file name\n # -------------------------\n-\n def extract_file_name(text):\n-    match = re.search(r'\\b[\\w\\-\\/]+\\.c\\b|\\b[\\w\\-\\/]+\\.py\\b|\\b[\\w\\-\\/]+\\.md\\b', text)\n+    match = re.search(r'\\b[\\w\\-]+\\.c\\b|\\b[\\w\\-]+\\.py\\b|\\b[\\w\\-]+\\.md\\b', text)\n     return match.group(0) if match else None\n \n \n file_name = extract_file_name(question)\n \n+\n # -------------------------\n # 1\ufe0f\u20e3 Latest commits\n # -------------------------\n@@ -49,7 +51,7 @@ if \"who modified\" in question and file_name:\n     history = get_file_history(file_name)\n \n     if not history:\n-        print(\"No history found for\", file_name)\n+        print(f\"No history found for {file_name}\")\n         sys.exit(0)\n \n     print(f\"\\nModification History for {file_name}:\\n\")\n@@ -65,67 +67,60 @@ if \"who modified\" in question and file_name:\n \n \n # -------------------------\n-# 3\ufe0f\u20e3 Explain file logic\n+# 3\ufe0f\u20e3 What changed in file\n # -------------------------\n-if (\"what does\" in question or \"explain\" in question) and file_name:\n-    content = get_latest_file_content(file_name)\n+if \"what changed\" in question and file_name:\n+    history = get_file_history(file_name)\n \n-    if not content:\n-        print(\"File not found:\", file_name)\n+    if not history:\n+        print(f\"No history found for {file_name}\")\n         sys.exit(0)\n \n-    prompt = f\"\"\"\n-You are a senior software engineer.\n+    latest_commit = history[0][\"commit_id\"]\n+    diffs = get_file_diff(latest_commit, file_name)\n \n-Analyze the following code and explain clearly:\n-- What the program does\n-- Any logical mistakes\n-- Any improvements needed\n+    print(f\"\\nLatest Changes in {file_name}:\\n\")\n \n-Code:\n-{content}\n-\"\"\"\n+    if not diffs:\n+        print(\"No changes found.\")\n+    else:\n+        for diff in diffs:\n+            print(diff)\n \n-    answer = ask_llm(prompt)\n-    print(\"\\nAI Analysis:\\n\")\n-    print(answer)\n     sys.exit(0)\n \n \n # -------------------------\n-# 4\ufe0f\u20e3 What changed in file\n+# 4\ufe0f\u20e3 Explain file logic\n # -------------------------\n-if \"what changed\" in question and file_name:\n-    history = get_file_history(file_name)\n+if (\"what does\" in question or \"explain\" in question) and file_name:\n+    content = get_latest_file_content(file_name)\n \n-    if not history:\n-        print(\"No history found.\")\n+    if not content:\n+        print(f\"File not found: {file_name}\")\n         sys.exit(0)\n \n-    latest_commit = history[0][\"commit_id\"]\n-    diffs = get_file_diff(latest_commit)\n+    prompt = f\"\"\"\n+You are a senior software engineer.\n \n-    print(f\"\\nLatest Changes in {file_name}:\\n\")\n+Analyze this code and explain:\n+1. What it does\n+2. Logical mistakes\n+3. Improvements needed\n \n-    for d in diffs:\n-        if file_name in d[\"file\"]:\n-            print(d[\"diff\"])\n+Code:\n+{content}\n+\"\"\"\n \n+    answer = ask_llm(prompt)\n+    print(\"\\nAI Analysis:\\n\")\n+    print(answer)\n     sys.exit(0)\n \n \n # -------------------------\n # 5\ufe0f\u20e3 Fallback \u2192 LLM\n # -------------------------\n-prompt = f\"\"\"\n-You are an intelligent Git repository assistant.\n-\n-User question:\n-{question}\n-\n-Answer intelligently.\n-\"\"\"\n-\n-answer = ask_llm(prompt)\n+answer = ask_llm(question)\n print(\"\\nAI Response:\\n\")\n print(answer)\n"
+      }
+    ]
+  },
+  {
+    "commit_id": "a775c7804917fff20d09247fbf8841d67ac4fd9a",
+    "author": "Vigneshwaran-S-08",
+    "date": "2026-02-12 17:58:19+05:30",
+    "message": "Add file path resolution to git utility functions",
+    "changes": [
+      {
+        "file_path": "git_utils.py",
+        "content": "@@ -2,6 +2,20 @@ from git import Repo\n \n repo = Repo(\".\")\n \n+# ---------------------------\n+# Resolve filename automatically\n+# ---------------------------\n+def resolve_file_path(file_name):\n+    for blob in repo.head.commit.tree.traverse():\n+        if blob.type == \"blob\":\n+            if blob.path.endswith(file_name):\n+                return blob.path\n+    return None\n+\n+\n+# ---------------------------\n+# Latest commits\n+# ---------------------------\n def get_latest_commits(n=5):\n     commits = list(repo.iter_commits())[:n]\n     results = []\n@@ -17,8 +31,16 @@ def get_latest_commits(n=5):\n     return results\n \n \n+# ---------------------------\n+# File history\n+# ---------------------------\n def get_file_history(file_name):\n-    commits = list(repo.iter_commits(paths=file_name))\n+    full_path = resolve_file_path(file_name)\n+\n+    if not full_path:\n+        return []\n+\n+    commits = list(repo.iter_commits(paths=full_path))\n     history = []\n \n     for commit in commits:\n@@ -32,30 +54,44 @@ def get_file_history(file_name):\n     return history\n \n \n+# ---------------------------\n+# Latest file content\n+# ---------------------------\n def get_latest_file_content(file_name):\n+    full_path = resolve_file_path(file_name)\n+\n+    if not full_path:\n+        return None\n+\n     try:\n-        blob = repo.head.commit.tree / file_name\n+        blob = repo.head.commit.tree / full_path\n         return blob.data_stream.read().decode(\"utf-8\", errors=\"ignore\")\n-    except Exception:\n+    except:\n         return None\n \n \n-def get_file_diff(commit_id):\n+# ---------------------------\n+# File diff for specific commit\n+# ---------------------------\n+def get_file_diff(commit_id, file_name):\n+    full_path = resolve_file_path(file_name)\n+\n+    if not full_path:\n+        return []\n+\n     commit = repo.commit(commit_id)\n     diffs = []\n \n     for parent in commit.parents:\n         for diff in parent.diff(commit, create_patch=True):\n-            try:\n-                diff_text = diff.diff.decode(\"utf-8\", errors=\"ignore\")\n-            except:\n-                diff_text = \"\"\n-\n             file_path = diff.a_path if diff.a_path else diff.b_path\n \n-            diffs.append({\n-                \"file\": file_path,\n-                \"diff\": diff_text\n-            })\n+            if file_path == full_path:\n+                try:\n+                    diff_text = diff.diff.decode(\"utf-8\", errors=\"ignore\")\n+                except:\n+                    diff_text = \"\"\n+\n+                diffs.append(diff_text)\n \n     return diffs\n"
+      }
+    ]
+  },
+  {
+    "commit_id": "bd6a7395cb2a89e069476cf0fe196d85a47f1803",
+    "author": "Vigneshwaran-S-08",
+    "date": "2026-02-12 17:50:06+05:30",
+    "message": "Add files via upload",
+    "changes": [
+      {
+        "file_path": "Task4.c",
+        "content": "@@ -0,0 +1,43 @@\n+#include<stdio.h>\n+#include<stdlib.h>\n+#include<unistd.h>\n+#include<sys/wait.h>\n+#include<pthread.h>\n+\n+\n+int main()\n+{\n+    pid_t pid;\n+    int i;\n+    char *commands[][3] = { {\"ls\",\"-1\",NULL},{\"pwd\",NULL,NULL},{\"date\",NULL,NULL} };  \n+    \n+    int n_commands = 3;\n+\n+    for(i =0;i<n_commands;i++)\n+    {\n+        pid = fork();\n+\n+        if(pid < 0 )\n+        {\n+            printf(\"fork failed\");\n+            return 1;\n+        }\n+        else if(pid ==0)\n+        {\n+            printf(\"child %d is executing command %s\\n\",getpid(),commands[i][0]);\n+                \n+            execvp(commands[i][0],commands[i]);\n+            /*exec only returns when it is failed so the next line wont be executed*/\n+            printf(\"exec failed\");\n+            exit(1);\n+        }\n+       \n+    }\n+      for(i=0;i<n_commands;i++)\n+        {\n+            wait(NULL);\n+        }\n+     printf(\"All child process are completed\\n\");\n+        return 0;\n+\n+}\n\\ No newline at end of file\n"
+      }
+    ]
+  },
+  {
+    "commit_id": "312c0d776611987a5bf6e876df802edf4a1d1ecb",
+    "author": "Vigneshwaran-S-08",
+    "date": "2026-02-12 17:45:37+05:30",
+    "message": "Enhance agent.py with intent detection and LLM integration\n\nRefactor agent.py to include intent detection and file handling features. Added functions for extracting file names, retrieving commit history, and analyzing file logic using LLM.",
+    "changes": [
+      {
+        "file_path": "agent.py",
+        "content": "@@ -1,8 +1,12 @@\n-import faiss\n-import json\n-import numpy as np\n import sys\n-from sentence_transformers import SentenceTransformer\n+import re\n+from git_utils import (\n+    get_latest_commits,\n+    get_file_history,\n+    get_latest_file_content,\n+    get_file_diff\n+)\n+from llm_utils import ask_llm\n \n if len(sys.argv) < 2:\n     print(\"Usage: python agent.py \\\"your question\\\"\")\n@@ -10,46 +14,118 @@ if len(sys.argv) < 2:\n \n question = sys.argv[1].lower()\n \n-# Load metadata\n-with open(\"data/meta.json\", \"r\") as f:\n-    metadata = json.load(f)\n+# -------------------------\n+# Intent Detection\n+# -------------------------\n \n-# ------------------------------\n-# 1\ufe0f\u20e3 Check if question mentions a file directly\n-# ------------------------------\n-for entry in metadata:\n-    if entry[\"commit_id\"] == \"LATEST_VERSION\":\n-        file_name = entry[\"file_path\"].split(\"/\")[-1].lower()\n+def extract_file_name(text):\n+    match = re.search(r'\\b[\\w\\-\\/]+\\.c\\b|\\b[\\w\\-\\/]+\\.py\\b|\\b[\\w\\-\\/]+\\.md\\b', text)\n+    return match.group(0) if match else None\n \n-        if file_name in question:\n-            print(\"\\nLatest Version Found:\\n\")\n-            print(\"File:\", entry[\"file_path\"])\n-            print(\"\\nFull Content:\\n\")\n-            print(entry[\"content\"])\n-            sys.exit(0)\n \n-# ------------------------------\n-# 2\ufe0f\u20e3 Otherwise use semantic search\n-# ------------------------------\n+file_name = extract_file_name(question)\n \n-model = SentenceTransformer(\"all-MiniLM-L6-v2\")\n-index = faiss.read_index(\"data/index.faiss\")\n+# -------------------------\n+# 1\ufe0f\u20e3 Latest commits\n+# -------------------------\n+if \"latest commit\" in question or \"recent commit\" in question:\n+    commits = get_latest_commits(5)\n \n-query_vector = model.encode([question])\n-query_vector = np.array(query_vector).astype(\"float32\")\n+    print(\"\\nLatest 5 Commits:\\n\")\n+    for c in commits:\n+        print(\"--------------------------------------------------\")\n+        print(\"Commit ID:\", c[\"commit_id\"])\n+        print(\"Author:\", c[\"author\"])\n+        print(\"Date:\", c[\"date\"])\n+        print(\"Message:\", c[\"message\"])\n+    print(\"--------------------------------------------------\")\n+    sys.exit(0)\n+\n+\n+# -------------------------\n+# 2\ufe0f\u20e3 Who modified file\n+# -------------------------\n+if \"who modified\" in question and file_name:\n+    history = get_file_history(file_name)\n \n-D, I = index.search(query_vector, k=3)\n+    if not history:\n+        print(\"No history found for\", file_name)\n+        sys.exit(0)\n \n-print(\"\\nTop Relevant Results:\\n\")\n+    print(f\"\\nModification History for {file_name}:\\n\")\n \n-for idx in I[0]:\n-    result = metadata[idx]\n+    for h in history:\n+        print(\"--------------------------------------------------\")\n+        print(\"Commit ID:\", h[\"commit_id\"])\n+        print(\"Author:\", h[\"author\"])\n+        print(\"Date:\", h[\"date\"])\n+        print(\"Message:\", h[\"message\"])\n     print(\"--------------------------------------------------\")\n-    print(\"Commit ID:\", result[\"commit_id\"])\n-    print(\"Author:\", result[\"author\"])\n-    print(\"Date:\", result[\"date\"])\n-    print(\"File:\", result[\"file_path\"])\n-    print(\"Message:\", result[\"message\"])\n-    print(\"\\nContent Preview:\\n\")\n-    print(result[\"content\"][:800])\n-    print(\"--------------------------------------------------\\n\")\n+    sys.exit(0)\n+\n+\n+# -------------------------\n+# 3\ufe0f\u20e3 Explain file logic\n+# -------------------------\n+if (\"what does\" in question or \"explain\" in question) and file_name:\n+    content = get_latest_file_content(file_name)\n+\n+    if not content:\n+        print(\"File not found:\", file_name)\n+        sys.exit(0)\n+\n+    prompt = f\"\"\"\n+You are a senior software engineer.\n+\n+Analyze the following code and explain clearly:\n+- What the program does\n+- Any logical mistakes\n+- Any improvements needed\n+\n+Code:\n+{content}\n+\"\"\"\n+\n+    answer = ask_llm(prompt)\n+    print(\"\\nAI Analysis:\\n\")\n+    print(answer)\n+    sys.exit(0)\n+\n+\n+# -------------------------\n+# 4\ufe0f\u20e3 What changed in file\n+# -------------------------\n+if \"what changed\" in question and file_name:\n+    history = get_file_history(file_name)\n+\n+    if not history:\n+        print(\"No history found.\")\n+        sys.exit(0)\n+\n+    latest_commit = history[0][\"commit_id\"]\n+    diffs = get_file_diff(latest_commit)\n+\n+    print(f\"\\nLatest Changes in {file_name}:\\n\")\n+\n+    for d in diffs:\n+        if file_name in d[\"file\"]:\n+            print(d[\"diff\"])\n+\n+    sys.exit(0)\n+\n+\n+# -------------------------\n+# 5\ufe0f\u20e3 Fallback \u2192 LLM\n+# -------------------------\n+prompt = f\"\"\"\n+You are an intelligent Git repository assistant.\n+\n+User question:\n+{question}\n+\n+Answer intelligently.\n+\"\"\"\n+\n+answer = ask_llm(prompt)\n+print(\"\\nAI Response:\\n\")\n+print(answer)\n"
+      }
+    ]
+  },
+  {
+    "commit_id": "6cb9b9d6a34631ca17ba1a9a995d2f5274f5b444",
+    "author": "Vigneshwaran-S-08",
+    "date": "2026-02-12 17:45:06+05:30",
+    "message": "Add ask_llm function to interact with LLM\n\nImplement function to query LLM using subprocess.",
+    "changes": [
+      {
+        "file_path": "llm_utils.py",
+        "content": "@@ -0,0 +1,12 @@\n+import subprocess\n+\n+MODEL_NAME = \"deepseek-coder:6.7b\"\n+\n+def ask_llm(prompt):\n+    result = subprocess.run(\n+        [\"ollama\", \"run\", MODEL_NAME],\n+        input=prompt.encode(),\n+        stdout=subprocess.PIPE\n+    )\n+\n+    return result.stdout.decode()\n"
+      }
+    ]
+  },
+  {
+    "commit_id": "d6c4a5c9d4ae373dafafc9e71d94fde216ec9bf6",
+    "author": "Vigneshwaran-S-08",
+    "date": "2026-02-12 17:44:37+05:30",
+    "message": "Add Git utility functions for commit and file operations\n\nImplement utility functions for Git operations including fetching latest commits, file history, latest file content, and file diffs.",
+    "changes": [
+      {
+        "file_path": "git_utils.py",
+        "content": "@@ -0,0 +1,61 @@\n+from git import Repo\n+\n+repo = Repo(\".\")\n+\n+def get_latest_commits(n=5):\n+    commits = list(repo.iter_commits())[:n]\n+    results = []\n+\n+    for commit in commits:\n+        results.append({\n+            \"commit_id\": commit.hexsha,\n+            \"author\": commit.author.name,\n+            \"date\": str(commit.committed_datetime),\n+            \"message\": commit.message.strip()\n+        })\n+\n+    return results\n+\n+\n+def get_file_history(file_name):\n+    commits = list(repo.iter_commits(paths=file_name))\n+    history = []\n+\n+    for commit in commits:\n+        history.append({\n+            \"commit_id\": commit.hexsha,\n+            \"author\": commit.author.name,\n+            \"date\": str(commit.committed_datetime),\n+            \"message\": commit.message.strip()\n+        })\n+\n+    return history\n+\n+\n+def get_latest_file_content(file_name):\n+    try:\n+        blob = repo.head.commit.tree / file_name\n+        return blob.data_stream.read().decode(\"utf-8\", errors=\"ignore\")\n+    except Exception:\n+        return None\n+\n+\n+def get_file_diff(commit_id):\n+    commit = repo.commit(commit_id)\n+    diffs = []\n+\n+    for parent in commit.parents:\n+        for diff in parent.diff(commit, create_patch=True):\n+            try:\n+                diff_text = diff.diff.decode(\"utf-8\", errors=\"ignore\")\n+            except:\n+                diff_text = \"\"\n+\n+            file_path = diff.a_path if diff.a_path else diff.b_path\n+\n+            diffs.append({\n+                \"file\": file_path,\n+                \"diff\": diff_text\n+            })\n+\n+    return diffs\n"
+      }
+    ]
+  },
+  {
+    "commit_id": "f1d45db13dcc7dfecfc97d7640ea459e3e84a39a",
+    "author": "Vigneshwaran-S-08",
+    "date": "2026-02-12 15:41:58+05:30",
+    "message": "Add greeting message in hi.c",
+    "changes": [
+      {
+        "file_path": "data/hi.c",
+        "content": "@@ -1 +1,6 @@\n+#include<stdio.h>\n \n+int main()\n+{\n+  printf(\"Hello everyone This is Vigneshwaran from Spanidea\");\n+}\n"
+      }
+    ]
+  },
+  {
+    "commit_id": "bcf2608dc295adb4da9bdfb5109e11a5f55c7045",
+    "author": "Vigneshwaran-S-08",
+    "date": "2026-02-12 15:40:58+05:30",
+    "message": "Add task3.c to execute multiple commands using fork",
+    "changes": [
+      {
+        "file_path": "data/task3.c",
+        "content": "@@ -0,0 +1,43 @@\n+#include<stdio.h>\n+#include<stdlib.h>\n+#include<unistd.h>\n+#include<sys/wait.h>\n+#include<pthread.h>\n+\n+\n+int main()\n+{\n+    pid_t pid;\n+    int i;\n+    char *commands[][3] = { {\"ls\",\"-1\",NULL},{\"pwd\",NULL,NULL},{\"date\",NULL,NULL} };  \n+    \n+    int n_commands = 3;\n+\n+    for(i =0;i<n_commands;i++)\n+    {\n+        pid = fork();\n+\n+        if(pid < 0 )\n+        {\n+            printf(\"fork failed\");\n+            return 1;\n+        }\n+        else if(pid ==0)\n+        {\n+            printf(\"child %d is executing command %s\\n\",getpid(),commands[i][0]);\n+                \n+            execvp(commands[i][0],commands[i]);\n+            /*exec only returns when it is failed so the next line wont be executed*/\n+            printf(\"exec failed\");\n+            exit(1);\n+        }\n+       \n+    }\n+      for(i=0;i<n_commands;i++)\n+        {\n+            wait(NULL);\n+        }\n+     printf(\"All child process are completed\\n\");\n+        return 0;\n+\n+}\n"
+      }
+    ]
+  },
+  {
+    "commit_id": "5f36f2c6f5b46d1f75afd3c929d0f9cfa39eabb2",
+    "author": "Vigneshwaran-S-08",
+    "date": "2026-02-12 15:38:53+05:30",
+    "message": "Create hi.c",
+    "changes": [
+      {
+        "file_path": "data/hi.c",
+        "content": "@@ -0,0 +1 @@\n+\n"
+      }
+    ]
+  },
+  {
+    "commit_id": "fe0270e4815c0d8e0678fdc53f7fa8dbe0a9c538",
+    "author": "Vigneshwaran-S-08",
+    "date": "2026-02-12 15:06:19+05:30",
+    "message": "Enhance question handling and file content retrieval\n\nAdded functionality to check if the question mentions a file directly and print its content if found. Updated the question to lowercase for better matching.",
+    "changes": [
+      {
+        "file_path": "agent.py",
+        "content": "@@ -8,22 +8,36 @@ if len(sys.argv) < 2:\n     print(\"Usage: python agent.py \\\"your question\\\"\")\n     sys.exit(1)\n \n-question = sys.argv[1]\n-\n-model = SentenceTransformer(\"all-MiniLM-L6-v2\")\n-\n-# Load FAISS index\n-index = faiss.read_index(\"data/index.faiss\")\n+question = sys.argv[1].lower()\n \n # Load metadata\n with open(\"data/meta.json\", \"r\") as f:\n     metadata = json.load(f)\n \n-# Convert question to embedding\n+# ------------------------------\n+# 1\ufe0f\u20e3 Check if question mentions a file directly\n+# ------------------------------\n+for entry in metadata:\n+    if entry[\"commit_id\"] == \"LATEST_VERSION\":\n+        file_name = entry[\"file_path\"].split(\"/\")[-1].lower()\n+\n+        if file_name in question:\n+            print(\"\\nLatest Version Found:\\n\")\n+            print(\"File:\", entry[\"file_path\"])\n+            print(\"\\nFull Content:\\n\")\n+            print(entry[\"content\"])\n+            sys.exit(0)\n+\n+# ------------------------------\n+# 2\ufe0f\u20e3 Otherwise use semantic search\n+# ------------------------------\n+\n+model = SentenceTransformer(\"all-MiniLM-L6-v2\")\n+index = faiss.read_index(\"data/index.faiss\")\n+\n query_vector = model.encode([question])\n query_vector = np.array(query_vector).astype(\"float32\")\n \n-# Search top 3 matches\n D, I = index.search(query_vector, k=3)\n \n print(\"\\nTop Relevant Results:\\n\")\n@@ -37,5 +51,5 @@ for idx in I[0]:\n     print(\"File:\", result[\"file_path\"])\n     print(\"Message:\", result[\"message\"])\n     print(\"\\nContent Preview:\\n\")\n-    print(result[\"content\"][:800])  # limit large output\n+    print(result[\"content\"][:800])\n     print(\"--------------------------------------------------\\n\")\n"
+      }
+    ]
+  },
+  {
+    "commit_id": "1c964fc981a40d78f47de804021b89741f3ecf5e",
+    "author": "Vigneshwaran-S-08",
+    "date": "2026-02-12 14:57:08+05:30",
+    "message": "Implement FAISS search and content preview\n\nAdded functionality to load FAISS index and metadata, convert question to embedding, and search for top matches. Enhanced output to include content preview.",
+    "changes": [
+      {
+        "file_path": "agent.py",
+        "content": "@@ -12,14 +12,18 @@ question = sys.argv[1]\n \n model = SentenceTransformer(\"all-MiniLM-L6-v2\")\n \n+# Load FAISS index\n index = faiss.read_index(\"data/index.faiss\")\n \n+# Load metadata\n with open(\"data/meta.json\", \"r\") as f:\n     metadata = json.load(f)\n \n+# Convert question to embedding\n query_vector = model.encode([question])\n query_vector = np.array(query_vector).astype(\"float32\")\n \n+# Search top 3 matches\n D, I = index.search(query_vector, k=3)\n \n print(\"\\nTop Relevant Results:\\n\")\n@@ -32,5 +36,6 @@ for idx in I[0]:\n     print(\"Date:\", result[\"date\"])\n     print(\"File:\", result[\"file_path\"])\n     print(\"Message:\", result[\"message\"])\n-    print(\"Diff:\\n\", result[\"diff\"][:500])\n+    print(\"\\nContent Preview:\\n\")\n+    print(result[\"content\"][:800])  # limit large output\n     print(\"--------------------------------------------------\\n\")\n"
+      }
+    ]
+  },
+  {
+    "commit_id": "007518ac38d74a4e7461c6135cd4965141f8c9b4",
+    "author": "Vigneshwaran-S-08",
+    "date": "2026-02-12 14:56:41+05:30",
+    "message": "Refactor retriever.py to include file content in metadata",
+    "changes": [
+      {
+        "file_path": "retriever.py",
+        "content": "@@ -3,6 +3,7 @@ import faiss\n import numpy as np\n from sentence_transformers import SentenceTransformer\n \n+# Load indexed repo data\n with open(\"data/repo_data.json\", \"r\") as f:\n     repo_data = json.load(f)\n \n@@ -11,38 +12,41 @@ model = SentenceTransformer(\"all-MiniLM-L6-v2\")\n documents = []\n metadata = []\n \n-for commit in repo_data:\n-    for change in commit[\"changes\"]:\n+for entry in repo_data:\n+    for change in entry[\"changes\"]:\n         text = f\"\"\"\n-        Commit ID: {commit['commit_id']}\n-        Author: {commit['author']}\n-        Date: {commit['date']}\n-        Message: {commit['message']}\n+        Commit ID: {entry['commit_id']}\n+        Author: {entry['author']}\n+        Date: {entry['date']}\n+        Message: {entry['message']}\n         File: {change['file_path']}\n-        Diff:\n-        {change['diff']}\n+        Content:\n+        {change['content']}\n         \"\"\"\n \n         documents.append(text)\n \n         metadata.append({\n-            \"commit_id\": commit[\"commit_id\"],\n-            \"author\": commit[\"author\"],\n-            \"date\": commit[\"date\"],\n-            \"message\": commit[\"message\"],\n+            \"commit_id\": entry[\"commit_id\"],\n+            \"author\": entry[\"author\"],\n+            \"date\": entry[\"date\"],\n+            \"message\": entry[\"message\"],\n             \"file_path\": change[\"file_path\"],\n-            \"diff\": change[\"diff\"]\n+            \"content\": change[\"content\"]\n         })\n \n+# Generate embeddings\n embeddings = model.encode(documents)\n \n dimension = embeddings.shape[1]\n index = faiss.IndexFlatL2(dimension)\n index.add(np.array(embeddings).astype(\"float32\"))\n \n+# Save index\n faiss.write_index(index, \"data/index.faiss\")\n \n+# Save metadata\n with open(\"data/meta.json\", \"w\") as f:\n     json.dump(metadata, f)\n \n-print(\"Vector index with diffs created.\")\n+print(\"Vector index created successfully (including file contents).\")\n"
+      }
+    ]
+  },
+  {
+    "commit_id": "6add11fe6f4aa7e856653072da5a87f63383b096",
+    "author": "Vigneshwaran-S-08",
+    "date": "2026-02-12 14:56:13+05:30",
+    "message": "Enhance indexing to include latest file contents",
+    "changes": [
+      {
+        "file_path": "index_repo.py",
+        "content": "@@ -6,6 +6,9 @@ repo = Repo(\".\")\n \n data = []\n \n+# -------------------------\n+# 1. Extract Commit History\n+# -------------------------\n for commit in repo.iter_commits():\n     commit_data = {\n         \"commit_id\": commit.hexsha,\n@@ -24,18 +27,47 @@ for commit in repo.iter_commits():\n             except:\n                 diff_text = \"\"\n \n+            # \ud83d\udd25 FIX: Handle new file correctly\n+            file_path = diff.a_path if diff.a_path else diff.b_path\n+\n             change = {\n-                \"file_path\": diff.a_path,\n-                \"diff\": diff_text\n+                \"file_path\": file_path,\n+                \"content\": diff_text\n             }\n \n             commit_data[\"changes\"].append(change)\n \n     data.append(commit_data)\n \n+# ---------------------------------\n+# 2. Add Latest File Contents (NEW)\n+# ---------------------------------\n+for blob in repo.tree().traverse():\n+    if blob.type == \"blob\":\n+        try:\n+            content = blob.data_stream.read().decode(\"utf-8\", errors=\"ignore\")\n+        except:\n+            content = \"\"\n+\n+        file_entry = {\n+            \"commit_id\": \"LATEST_VERSION\",\n+            \"author\": \"N/A\",\n+            \"date\": \"N/A\",\n+            \"message\": \"Latest file snapshot\",\n+            \"changes\": [\n+                {\n+                    \"file_path\": blob.path,\n+                    \"content\": content\n+                }\n+            ]\n+        }\n+\n+        data.append(file_entry)\n+\n+# Save everything\n os.makedirs(\"data\", exist_ok=True)\n \n with open(\"data/repo_data.json\", \"w\") as f:\n     json.dump(data, f, indent=2)\n \n-print(\"Repository indexed with diffs successfully.\")\n+print(\"Repository indexed successfully with commits + latest file content.\")\n"
+      }
+    ]
+  },
+  {
+    "commit_id": "1b1f269355bddcf7417f91e3f0ff358026de3155",
+    "author": "Vigneshwaran-S-08",
+    "date": "2026-02-12 14:47:15+05:30",
+    "message": "Add main function to hello.c with sum output\n\nInitialize variables and print sum without calculation.",
+    "changes": [
+      {
+        "file_path": "data/hello.c",
+        "content": "@@ -1 +1,9 @@\n+#include<stdio.h>\n \n+int main()\n+{\n+  int a ,b;\n+  int sum=0;\n+  printf(\"the sum is %d /n\",sum);\n+\n+}\n"
+      }
+    ]
+  },
+  {
+    "commit_id": "2fbbe14cd0e56b72d7ab7c0daabdcbba4c3786ef",
+    "author": "Vigneshwaran-S-08",
+    "date": "2026-02-12 14:41:35+05:30",
+    "message": "Update output format for search results",
+    "changes": [
+      {
+        "file_path": "agent.py",
+        "content": "@@ -10,30 +10,27 @@ if len(sys.argv) < 2:\n \n question = sys.argv[1]\n \n-# Load model\n model = SentenceTransformer(\"all-MiniLM-L6-v2\")\n \n-# Load FAISS index\n index = faiss.read_index(\"data/index.faiss\")\n \n-# Load metadata\n with open(\"data/meta.json\", \"r\") as f:\n     metadata = json.load(f)\n \n-# Embed question\n query_vector = model.encode([question])\n query_vector = np.array(query_vector).astype(\"float32\")\n \n-# Search\n D, I = index.search(query_vector, k=3)\n \n-print(\"\\nTop Relevant Commits:\\n\")\n+print(\"\\nTop Relevant Results:\\n\")\n \n for idx in I[0]:\n-    commit = metadata[idx]\n+    result = metadata[idx]\n     print(\"--------------------------------------------------\")\n-    print(\"Commit ID:\", commit[\"commit_id\"])\n-    print(\"Author:\", commit[\"author\"])\n-    print(\"Date:\", commit[\"date\"])\n-    print(\"Message:\", commit[\"message\"])\n+    print(\"Commit ID:\", result[\"commit_id\"])\n+    print(\"Author:\", result[\"author\"])\n+    print(\"Date:\", result[\"date\"])\n+    print(\"File:\", result[\"file_path\"])\n+    print(\"Message:\", result[\"message\"])\n+    print(\"Diff:\\n\", result[\"diff\"][:500])\n     print(\"--------------------------------------------------\\n\")\n"
+      }
+    ]
+  },
+  {
+    "commit_id": "c4f383fb792f67d54d75e7131a2346e5356aae14",
+    "author": "Vigneshwaran-S-08",
+    "date": "2026-02-12 14:41:05+05:30",
+    "message": "Include file changes and diffs in document processing",
+    "changes": [
+      {
+        "file_path": "retriever.py",
+        "content": "@@ -3,7 +3,6 @@ import faiss\n import numpy as np\n from sentence_transformers import SentenceTransformer\n \n-# Load repo data\n with open(\"data/repo_data.json\", \"r\") as f:\n     repo_data = json.load(f)\n \n@@ -13,28 +12,37 @@ documents = []\n metadata = []\n \n for commit in repo_data:\n-    text = f\"\"\"\n-    Commit ID: {commit['commit_id']}\n-    Author: {commit['author']}\n-    Date: {commit['date']}\n-    Message: {commit['message']}\n-    \"\"\"\n-    documents.append(text)\n-    metadata.append(commit)\n-\n-# Create embeddings locally\n+    for change in commit[\"changes\"]:\n+        text = f\"\"\"\n+        Commit ID: {commit['commit_id']}\n+        Author: {commit['author']}\n+        Date: {commit['date']}\n+        Message: {commit['message']}\n+        File: {change['file_path']}\n+        Diff:\n+        {change['diff']}\n+        \"\"\"\n+\n+        documents.append(text)\n+\n+        metadata.append({\n+            \"commit_id\": commit[\"commit_id\"],\n+            \"author\": commit[\"author\"],\n+            \"date\": commit[\"date\"],\n+            \"message\": commit[\"message\"],\n+            \"file_path\": change[\"file_path\"],\n+            \"diff\": change[\"diff\"]\n+        })\n+\n embeddings = model.encode(documents)\n \n-# Create FAISS index\n dimension = embeddings.shape[1]\n index = faiss.IndexFlatL2(dimension)\n index.add(np.array(embeddings).astype(\"float32\"))\n \n-# Save index\n faiss.write_index(index, \"data/index.faiss\")\n \n-# Save metadata\n with open(\"data/meta.json\", \"w\") as f:\n     json.dump(metadata, f)\n \n-print(\"Offline vector index created successfully.\")\n+print(\"Vector index with diffs created.\")\n"
+      }
+    ]
+  },
+  {
+    "commit_id": "8a7cbefb2ec907e0337f44609465db3402a81305",
+    "author": "Vigneshwaran-S-08",
+    "date": "2026-02-12 14:40:19+05:30",
+    "message": "Update indexing to include diffs in commit data",
+    "changes": [
+      {
+        "file_path": "index_repo.py",
+        "content": "@@ -12,17 +12,24 @@ for commit in repo.iter_commits():\n         \"author\": commit.author.name,\n         \"date\": str(commit.committed_datetime),\n         \"message\": commit.message,\n-        \"files\": []\n+        \"changes\": []\n     }\n \n     for parent in commit.parents:\n         diffs = parent.diff(commit, create_patch=True)\n+\n         for diff in diffs:\n-            file_change = {\n+            try:\n+                diff_text = diff.diff.decode(\"utf-8\", errors=\"ignore\")\n+            except:\n+                diff_text = \"\"\n+\n+            change = {\n                 \"file_path\": diff.a_path,\n-                \"diff\": diff.diff.decode(\"utf-8\", errors=\"ignore\")\n+                \"diff\": diff_text\n             }\n-            commit_data[\"files\"].append(file_change)\n+\n+            commit_data[\"changes\"].append(change)\n \n     data.append(commit_data)\n \n@@ -31,5 +38,4 @@ os.makedirs(\"data\", exist_ok=True)\n with open(\"data/repo_data.json\", \"w\") as f:\n     json.dump(data, f, indent=2)\n \n-print(\"Repository indexed successfully.\")\n-\n+print(\"Repository indexed with diffs successfully.\")\n"
+      }
+    ]
+  },
+  {
+    "commit_id": "bc277ac4820368eb72068cfee765d9b2360e120f",
+    "author": "Vigneshwaran-S-08",
+    "date": "2026-02-12 11:57:34+05:30",
+    "message": "Replace OpenAI embeddings with SentenceTransformer\n\nRefactor agent.py to use SentenceTransformer for embeddings and remove OpenAI API calls.",
+    "changes": [
+      {
+        "file_path": "agent.py",
+        "content": "@@ -2,58 +2,38 @@ import faiss\n import json\n import numpy as np\n import sys\n-from openai import OpenAI\n-from dotenv import load_dotenv\n-import os\n+from sentence_transformers import SentenceTransformer\n \n-load_dotenv()\n-client = OpenAI()\n+if len(sys.argv) < 2:\n+    print(\"Usage: python agent.py \\\"your question\\\"\")\n+    sys.exit(1)\n \n question = sys.argv[1]\n \n-# Load index\n+# Load model\n+model = SentenceTransformer(\"all-MiniLM-L6-v2\")\n+\n+# Load FAISS index\n index = faiss.read_index(\"data/index.faiss\")\n \n+# Load metadata\n with open(\"data/meta.json\", \"r\") as f:\n     metadata = json.load(f)\n \n # Embed question\n-response = client.embeddings.create(\n-    model=\"text-embedding-3-small\",\n-    input=question\n-)\n-\n-query_vector = np.array([response.data[0].embedding]).astype(\"float32\")\n+query_vector = model.encode([question])\n+query_vector = np.array(query_vector).astype(\"float32\")\n \n # Search\n D, I = index.search(query_vector, k=3)\n \n-context = \"\"\n+print(\"\\nTop Relevant Commits:\\n\")\n+\n for idx in I[0]:\n     commit = metadata[idx]\n-    context += f\"\"\"\n-    Commit ID: {commit['commit_id']}\n-    Author: {commit['author']}\n-    Date: {commit['date']}\n-    Message: {commit['message']}\n-    \"\"\"\n-\n-# Ask LLM\n-chat_response = client.chat.completions.create(\n-    model=\"gpt-4o-mini\",\n-    messages=[\n-        {\"role\": \"system\", \"content\": \"You are a Git repository analysis agent.\"},\n-        {\"role\": \"user\", \"content\": f\"\"\"\n-        Context:\n-        {context}\n-\n-        Question:\n-        {question}\n-\n-        Answer clearly mentioning commit ID, author, and description.\n-        \"\"\"}\n-    ]\n-)\n-\n-print(chat_response.choices[0].message.content)\n-\n+    print(\"--------------------------------------------------\")\n+    print(\"Commit ID:\", commit[\"commit_id\"])\n+    print(\"Author:\", commit[\"author\"])\n+    print(\"Date:\", commit[\"date\"])\n+    print(\"Message:\", commit[\"message\"])\n+    print(\"--------------------------------------------------\\n\")\n"
+      }
+    ]
+  },
+  {
+    "commit_id": "2a3fd0657d46f2103aba70c66bfdd233834885de",
+    "author": "Vigneshwaran-S-08",
+    "date": "2026-02-12 11:57:09+05:30",
+    "message": "Refactor embedding creation in retriever.py\n\nRefactor retriever.py to use SentenceTransformer for embeddings instead of OpenAI API. Added comments for clarity.",
+    "changes": [
+      {
+        "file_path": "retriever.py",
+        "content": "@@ -1,16 +1,14 @@\n import json\n import faiss\n import numpy as np\n-from openai import OpenAI\n-from dotenv import load_dotenv\n-import os\n-\n-load_dotenv()\n-client = OpenAI()\n+from sentence_transformers import SentenceTransformer\n \n+# Load repo data\n with open(\"data/repo_data.json\", \"r\") as f:\n     repo_data = json.load(f)\n \n+model = SentenceTransformer(\"all-MiniLM-L6-v2\")\n+\n documents = []\n metadata = []\n \n@@ -24,23 +22,19 @@ for commit in repo_data:\n     documents.append(text)\n     metadata.append(commit)\n \n-embeddings = []\n+# Create embeddings locally\n+embeddings = model.encode(documents)\n \n-for doc in documents:\n-    response = client.embeddings.create(\n-        model=\"text-embedding-3-small\",\n-        input=doc\n-    )\n-    embeddings.append(response.data[0].embedding)\n-\n-dimension = len(embeddings[0])\n+# Create FAISS index\n+dimension = embeddings.shape[1]\n index = faiss.IndexFlatL2(dimension)\n index.add(np.array(embeddings).astype(\"float32\"))\n \n+# Save index\n faiss.write_index(index, \"data/index.faiss\")\n \n+# Save metadata\n with open(\"data/meta.json\", \"w\") as f:\n     json.dump(metadata, f)\n \n-print(\"Vector index created.\")\n-\n+print(\"Offline vector index created successfully.\")\n"
+      }
+    ]
+  },
+  {
+    "commit_id": "d0eadc87c22b5a29e0f4d5361646c688ce4e27b6",
+    "author": "Vigneshwaran-S-08",
+    "date": "2026-02-12 11:47:49+05:30",
+    "message": "Delete .env",
+    "changes": [
+      {
+        "file_path": ".env",
+        "content": "@@ -1,2 +0,0 @@\n-OPENAI_API_KEY=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\n-\n"
+      }
+    ]
+  },
+  {
+    "commit_id": "f7d74f9eb643a37c2f1026ed4b41e2d8b259af20",
+    "author": "Vigneshwaran-S-08",
+    "date": "2026-02-12 10:47:45+05:30",
+    "message": "Update .env",
+    "changes": [
+      {
+        "file_path": ".env",
+        "content": "@@ -1,2 +1,2 @@\n-OPENAI_API_KEY=your_api_key_here\n+OPENAI_API_KEY=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\n \n"
+      }
+    ]
+  },
+  {
+    "commit_id": "2b8062a9f6210702783e1e74023c99dbf5a0490e",
+    "author": "Vigneshwaran-S-08",
+    "date": "2026-02-12 10:44:56+05:30",
+    "message": "Add OPENAI_API_KEY to environment variables",
+    "changes": [
+      {
+        "file_path": ".env",
+        "content": "@@ -1 +1,2 @@\n+OPENAI_API_KEY=your_api_key_here\n \n"
+      }
+    ]
+  },
+  {
+    "commit_id": "98fcdb71e55a35343b9f438476fda5e193c59675",
+    "author": "Vigneshwaran-S-08",
+    "date": "2026-02-12 10:44:16+05:30",
+    "message": "Implement Git repository analysis agent\n\nThis script loads a FAISS index and metadata, embeds a question using OpenAI's API, searches for relevant commits, and generates a response from a language model based on the context of those commits.",
+    "changes": [
+      {
+        "file_path": "agent.py",
+        "content": "@@ -1 +1,59 @@\n+import faiss\n+import json\n+import numpy as np\n+import sys\n+from openai import OpenAI\n+from dotenv import load_dotenv\n+import os\n+\n+load_dotenv()\n+client = OpenAI()\n+\n+question = sys.argv[1]\n+\n+# Load index\n+index = faiss.read_index(\"data/index.faiss\")\n+\n+with open(\"data/meta.json\", \"r\") as f:\n+    metadata = json.load(f)\n+\n+# Embed question\n+response = client.embeddings.create(\n+    model=\"text-embedding-3-small\",\n+    input=question\n+)\n+\n+query_vector = np.array([response.data[0].embedding]).astype(\"float32\")\n+\n+# Search\n+D, I = index.search(query_vector, k=3)\n+\n+context = \"\"\n+for idx in I[0]:\n+    commit = metadata[idx]\n+    context += f\"\"\"\n+    Commit ID: {commit['commit_id']}\n+    Author: {commit['author']}\n+    Date: {commit['date']}\n+    Message: {commit['message']}\n+    \"\"\"\n+\n+# Ask LLM\n+chat_response = client.chat.completions.create(\n+    model=\"gpt-4o-mini\",\n+    messages=[\n+        {\"role\": \"system\", \"content\": \"You are a Git repository analysis agent.\"},\n+        {\"role\": \"user\", \"content\": f\"\"\"\n+        Context:\n+        {context}\n+\n+        Question:\n+        {question}\n+\n+        Answer clearly mentioning commit ID, author, and description.\n+        \"\"\"}\n+    ]\n+)\n+\n+print(chat_response.choices[0].message.content)\n \n"
+      }
+    ]
+  },
+  {
+    "commit_id": "f1f892aaf9689e6ff0b87afddb59330fc7af4e4e",
+    "author": "Vigneshwaran-S-08",
+    "date": "2026-02-12 10:43:49+05:30",
+    "message": "Implement vector index creation from repo data\n\nLoad repository data, create embeddings, and save index.",
+    "changes": [
+      {
+        "file_path": "retriever.py",
+        "content": "@@ -1 +1,46 @@\n+import json\n+import faiss\n+import numpy as np\n+from openai import OpenAI\n+from dotenv import load_dotenv\n+import os\n+\n+load_dotenv()\n+client = OpenAI()\n+\n+with open(\"data/repo_data.json\", \"r\") as f:\n+    repo_data = json.load(f)\n+\n+documents = []\n+metadata = []\n+\n+for commit in repo_data:\n+    text = f\"\"\"\n+    Commit ID: {commit['commit_id']}\n+    Author: {commit['author']}\n+    Date: {commit['date']}\n+    Message: {commit['message']}\n+    \"\"\"\n+    documents.append(text)\n+    metadata.append(commit)\n+\n+embeddings = []\n+\n+for doc in documents:\n+    response = client.embeddings.create(\n+        model=\"text-embedding-3-small\",\n+        input=doc\n+    )\n+    embeddings.append(response.data[0].embedding)\n+\n+dimension = len(embeddings[0])\n+index = faiss.IndexFlatL2(dimension)\n+index.add(np.array(embeddings).astype(\"float32\"))\n+\n+faiss.write_index(index, \"data/index.faiss\")\n+\n+with open(\"data/meta.json\", \"w\") as f:\n+    json.dump(metadata, f)\n+\n+print(\"Vector index created.\")\n \n"
+      }
+    ]
+  },
+  {
+    "commit_id": "40271d63f128e623c79ac4c4ed92b6c30f3fbf8c",
+    "author": "Vigneshwaran-S-08",
+    "date": "2026-02-12 10:43:11+05:30",
+    "message": "Add repository indexing script\n\nThe script indexes the repository's commits, capturing commit details and file changes, and saves the data to a JSON file.",
+    "changes": [
+      {
+        "file_path": "index_repo.py",
+        "content": "@@ -1 +1,35 @@\n+import os\n+import json\n+from git import Repo\n+\n+repo = Repo(\".\")\n+\n+data = []\n+\n+for commit in repo.iter_commits():\n+    commit_data = {\n+        \"commit_id\": commit.hexsha,\n+        \"author\": commit.author.name,\n+        \"date\": str(commit.committed_datetime),\n+        \"message\": commit.message,\n+        \"files\": []\n+    }\n+\n+    for parent in commit.parents:\n+        diffs = parent.diff(commit, create_patch=True)\n+        for diff in diffs:\n+            file_change = {\n+                \"file_path\": diff.a_path,\n+                \"diff\": diff.diff.decode(\"utf-8\", errors=\"ignore\")\n+            }\n+            commit_data[\"files\"].append(file_change)\n+\n+    data.append(commit_data)\n+\n+os.makedirs(\"data\", exist_ok=True)\n+\n+with open(\"data/repo_data.json\", \"w\") as f:\n+    json.dump(data, f, indent=2)\n+\n+print(\"Repository indexed successfully.\")\n \n"
+      }
+    ]
+  },
+  {
+    "commit_id": "b68b7e22613522d1af207a41b6ddecfd6e1a4825",
+    "author": "Vigneshwaran-S-08",
+    "date": "2026-02-12 10:28:38+05:30",
+    "message": "Create hello.c",
+    "changes": [
+      {
+        "file_path": "data/hello.c",
+        "content": "@@ -0,0 +1 @@\n+\n"
+      }
+    ]
+  },
+  {
+    "commit_id": "e79d2e42aae357215e65be021fabdb03379fbe4f",
+    "author": "Vigneshwaran-S-08",
+    "date": "2026-02-12 10:28:03+05:30",
+    "message": "Create .env",
+    "changes": [
+      {
+        "file_path": ".env",
+        "content": "@@ -0,0 +1 @@\n+\n"
+      }
+    ]
+  },
+  {
+    "commit_id": "9c74754de80fbd600d8b57daf605941accd3e185",
+    "author": "Vigneshwaran-S-08",
+    "date": "2026-02-12 10:18:55+05:30",
+    "message": "Create retriever.py",
+    "changes": [
+      {
+        "file_path": "retriever.py",
+        "content": "@@ -0,0 +1 @@\n+\n"
+      }
+    ]
+  },
+  {
+    "commit_id": "5fad78ac861e101012884d708b74e04f9a8b756e",
+    "author": "Vigneshwaran-S-08",
+    "date": "2026-02-12 10:18:35+05:30",
+    "message": "Create index_repo.py",
+    "changes": [
+      {
+        "file_path": "index_repo.py",
+        "content": "@@ -0,0 +1 @@\n+\n"
+      }
+    ]
+  },
+  {
+    "commit_id": "5aea90081487f0ac465aa364e7a0b90115268d30",
+    "author": "Vigneshwaran-S-08",
+    "date": "2026-02-12 10:18:07+05:30",
+    "message": "Delete intro.c",
+    "changes": [
+      {
+        "file_path": "intro.c",
+        "content": "@@ -1 +0,0 @@\n-\n"
+      }
+    ]
+  },
+  {
+    "commit_id": "a74d6b162c20248b27042ca202c7690505ae9776",
+    "author": "Vigneshwaran-S-08",
+    "date": "2026-02-12 10:17:55+05:30",
+    "message": "Delete hello world.c",
+    "changes": [
+      {
+        "file_path": "hello world.c",
+        "content": "@@ -1 +0,0 @@\n-\n"
+      }
+    ]
+  },
+  {
+    "commit_id": "295e64df1fb9aa9d051b5ff6add5cdf1c75f702e",
+    "author": "Vigneshwaran-S-08",
+    "date": "2026-02-12 10:17:43+05:30",
+    "message": "Delete file1",
+    "changes": [
+      {
+        "file_path": "file1",
+        "content": "@@ -1 +0,0 @@\n-\n"
+      }
+    ]
+  },
+  {
+    "commit_id": "1bb6c9159ace4da0bce1de1831c26a39a60181ed",
+    "author": "Vigneshwaran-S-08",
+    "date": "2026-02-12 10:17:14+05:30",
+    "message": "Delete Task10.c",
+    "changes": [
+      {
+        "file_path": "Task10.c",
+        "content": "@@ -1,39 +0,0 @@\n-#include <stdio.h>\n-#include <unistd.h>\n-#include <sys/wait.h>\n-\n-void cpu_task(const char *name)\n-{\n-    for (long i = 0; i < 500000000; i++)\n-    {\n-        if (i % 100000000 == 0)\n-            printf(\"%s running...\\n\", name);\n-    }\n-}\n-\n-int main()\n-{\n-    pid_t pid1, pid2;\n-\n-    pid1 = fork();\n-    if (pid1 == 0)\n-    {\n-        nice(-25);   // higher priority\n-        cpu_task(\"High Priority Process\");\n-        return 0;\n-    }\n-\n-    pid2 = fork();\n-    if (pid2 == 0)\n-    {\n-        nice(10);    // lower priority\n-        cpu_task(\"Low Priority Process\");\n-        return 0;\n-    }\n-\n-    wait(NULL);\n-    wait(NULL);\n-\n-    printf(\"Parent: All processes completed\\n\");\n-    return 0;\n-}\n"
+      }
+    ]
+  },
+  {
+    "commit_id": "ff650116d302a4633ae5c1df562632a00a7aec1a",
+    "author": "Vigneshwaran-S-08",
+    "date": "2026-02-12 10:17:02+05:30",
+    "message": "Delete Task3.c",
+    "changes": [
+      {
+        "file_path": "Task3.c",
+        "content": "@@ -1,27 +0,0 @@\n-#include<stdio.h>\n-#include<stdlib.h>\n-\n-int main()\n-{\n-    char *vname = \"HOME\";\n-    char *value;\n-    char *newvalue;\n-\n-    value = getenv(vname);\n-\n-    if(value != 0 )\n-    {\n-        printf(\"the value of the environment variable %s  is %s\\n\",vname,value);\n-    }\n-    else{\n-        printf(\"error reading the value\");\n-    }\n-\n-    if(setenv(\"HELLO\",\"SPANIDEA\\n\",1)!=0)\n-    {\n-        printf(\"error\");\n-    }\n-    newvalue = getenv(\"HELLO\");\n-    printf(\"the value is changed to %s\",newvalue);\n-    \n-}\n\\ No newline at end of file\n"
+      }
+    ]
+  },
+  {
+    "commit_id": "20326f5ca7c870b9303c06ca91c13cfc1be93179",
+    "author": "Vigneshwaran-S-08",
+    "date": "2026-02-12 10:13:51+05:30",
+    "message": "Create agent.py",
+    "changes": [
+      {
+        "file_path": "agent.py",
+        "content": "@@ -0,0 +1 @@\n+\n"
+      }
+    ]
+  },
+  {
+    "commit_id": "92d754772b576c5c3c286141365f4e0ef8ad8967",
+    "author": "Hari Krishna Dukka",
+    "date": "2026-02-11 15:14:31+05:30",
+    "message": "Merge pull request #1 from Vigneshwaran-S-08/HariKrishnaDukka-patch-1\n\nCreate file1",
+    "changes": [
+      {
+        "file_path": "file1",
+        "content": "@@ -0,0 +1 @@\n+\n"
+      }
+    ]
+  },
+  {
+    "commit_id": "39df521e2a65d5161ce5a1dfa36b6f0ac70a410e",
+    "author": "Hari Krishna Dukka",
+    "date": "2026-02-11 15:13:36+05:30",
+    "message": "Create file1",
+    "changes": [
+      {
+        "file_path": "file1",
+        "content": "@@ -0,0 +1 @@\n+\n"
+      }
+    ]
+  },
+  {
+    "commit_id": "bbe13a38cade4cf72a992a9825d58df713b9ab4f",
+    "author": "Vigneshwaran-S-08",
+    "date": "2026-02-11 14:48:36+05:30",
+    "message": "Add files via upload",
+    "changes": [
+      {
+        "file_path": "Task10.c",
+        "content": "@@ -0,0 +1,39 @@\n+#include <stdio.h>\n+#include <unistd.h>\n+#include <sys/wait.h>\n+\n+void cpu_task(const char *name)\n+{\n+    for (long i = 0; i < 500000000; i++)\n+    {\n+        if (i % 100000000 == 0)\n+            printf(\"%s running...\\n\", name);\n+    }\n+}\n+\n+int main()\n+{\n+    pid_t pid1, pid2;\n+\n+    pid1 = fork();\n+    if (pid1 == 0)\n+    {\n+        nice(-25);   // higher priority\n+        cpu_task(\"High Priority Process\");\n+        return 0;\n+    }\n+\n+    pid2 = fork();\n+    if (pid2 == 0)\n+    {\n+        nice(10);    // lower priority\n+        cpu_task(\"Low Priority Process\");\n+        return 0;\n+    }\n+\n+    wait(NULL);\n+    wait(NULL);\n+\n+    printf(\"Parent: All processes completed\\n\");\n+    return 0;\n+}\n"
+      },
+      {
+        "file_path": "Task3.c",
+        "content": "@@ -0,0 +1,27 @@\n+#include<stdio.h>\n+#include<stdlib.h>\n+\n+int main()\n+{\n+    char *vname = \"HOME\";\n+    char *value;\n+    char *newvalue;\n+\n+    value = getenv(vname);\n+\n+    if(value != 0 )\n+    {\n+        printf(\"the value of the environment variable %s  is %s\\n\",vname,value);\n+    }\n+    else{\n+        printf(\"error reading the value\");\n+    }\n+\n+    if(setenv(\"HELLO\",\"SPANIDEA\\n\",1)!=0)\n+    {\n+        printf(\"error\");\n+    }\n+    newvalue = getenv(\"HELLO\");\n+    printf(\"the value is changed to %s\",newvalue);\n+    \n+}\n\\ No newline at end of file\n"
+      }
+    ]
+  },
+  {
+    "commit_id": "ba959a8a1812df24fc7e8b912f153c7004c0e4ca",
+    "author": "Vigneshwaran-S-08",
+    "date": "2026-02-11 14:47:13+05:30",
+    "message": "Create hello world.c\n\nanother evaluation code",
+    "changes": [
+      {
+        "file_path": "hello world.c",
+        "content": "@@ -0,0 +1 @@\n+\n"
+      }
+    ]
+  },
+  {
+    "commit_id": "ef2f746f8f95a6ab70feef31cc61149a144191d3",
+    "author": "Vigneshwaran-S-08",
+    "date": "2026-02-11 14:28:54+05:30",
+    "message": "Create intro.c\n\nThis is just a beginning code for evaluation",
+    "changes": [
+      {
+        "file_path": "intro.c",
+        "content": "@@ -0,0 +1 @@\n+\n"
+      }
+    ]
+  },
+  {
+    "commit_id": "31b856d54eea65fcd0ae820c15772d7a4363d166",
+    "author": "Vigneshwaran-S-08",
+    "date": "2026-02-11 14:25:00+05:30",
+    "message": "Add initial README with project title and description",
+    "changes": []
+  },
+  {
+    "commit_id": "LATEST_VERSION",
+    "author": "N/A",
+    "date": "N/A",
+    "message": "Latest file snapshot",
+    "changes": [
+      {
+        "file_path": "README.md",
+        "content": "# AIAgent\nEvaluation of AIagents\n"
+      }
+    ]
+  },
+  {
+    "commit_id": "LATEST_VERSION",
+    "author": "N/A",
+    "date": "N/A",
+    "message": "Latest file snapshot",
+    "changes": [
+      {
+        "file_path": "Task4.c",
+        "content": "#include<stdio.h>\n#include<stdlib.h>\n#include<unistd.h>\n#include<sys/wait.h>\n#include<pthread.h>\n\n\nint main()\n{\n    pid_t pid;\n    int i;\n    char *commands[][3] = { {\"ls\",\"-1\",NULL},{\"pwd\",NULL,NULL},{\"date\",NULL,NULL} };  \n    \n    int n_commands = 3;\n\n    for(i =0;i<n_commands;i++)\n    {\n        pid = fork();\n\n        if(pid < 0 )\n        {\n            printf(\"fork failed\");\n            return 1;\n        }\n        else if(pid ==0)\n        {\n            printf(\"child %d is executing command %s\\n\",getpid(),commands[i][0]);\n                \n            execvp(commands[i][0],commands[i]);\n            /*exec only returns when it is failed so the next line wont be executed*/\n            printf(\"exec failed\");\n            exit(1);\n        }\n       \n    }\n      for(i=0;i<n_commands;i++)\n        {\n            wait(NULL);\n        }\n     printf(\"All child process are completed\\n\");\n        return 0;\n\n}"
+      }
+    ]
+  },
+  {
+    "commit_id": "LATEST_VERSION",
+    "author": "N/A",
+    "date": "N/A",
+    "message": "Latest file snapshot",
+    "changes": [
+      {
+        "file_path": "agent.py",
+        "content": "import sys\nimport re\nfrom git_utils import (\n    get_latest_commits,\n    get_file_history,\n    get_latest_file_content,\n    get_file_diff\n)\nfrom llm_utils import ask_llm\n\n\nif len(sys.argv) < 2:\n    print(\"Usage: python agent.py \\\"your question\\\"\")\n    sys.exit(1)\n\nquestion = sys.argv[1].lower()\n\n\n# -------------------------\n# Extract file name\n# -------------------------\ndef extract_file_name(text):\n    match = re.search(r'\\b[\\w\\-]+\\.c\\b|\\b[\\w\\-]+\\.py\\b|\\b[\\w\\-]+\\.md\\b', text)\n    return match.group(0) if match else None\n\n\nfile_name = extract_file_name(question)\n\n\n# -------------------------\n# 1\ufe0f\u20e3 Latest commits\n# -------------------------\nif \"latest commit\" in question or \"recent commit\" in question:\n    commits = get_latest_commits(5)\n\n    print(\"\\nLatest 5 Commits:\\n\")\n    for c in commits:\n        print(\"--------------------------------------------------\")\n        print(\"Commit ID:\", c[\"commit_id\"])\n        print(\"Author:\", c[\"author\"])\n        print(\"Date:\", c[\"date\"])\n        print(\"Message:\", c[\"message\"])\n    print(\"--------------------------------------------------\")\n    sys.exit(0)\n\n\n# -------------------------\n# 2\ufe0f\u20e3 Who modified file\n# -------------------------\nif \"who modified\" in question and file_name:\n    history = get_file_history(file_name)\n\n    if not history:\n        print(f\"No history found for {file_name}\")\n        sys.exit(0)\n\n    print(f\"\\nModification History for {file_name}:\\n\")\n\n    for h in history:\n        print(\"--------------------------------------------------\")\n        print(\"Commit ID:\", h[\"commit_id\"])\n        print(\"Author:\", h[\"author\"])\n        print(\"Date:\", h[\"date\"])\n        print(\"Message:\", h[\"message\"])\n    print(\"--------------------------------------------------\")\n    sys.exit(0)\n\n\n# -------------------------\n# 3\ufe0f\u20e3 What changed in file\n# -------------------------\nif \"what changed\" in question and file_name:\n    history = get_file_history(file_name)\n\n    if not history:\n        print(f\"No history found for {file_name}\")\n        sys.exit(0)\n\n    latest_commit = history[0][\"commit_id\"]\n    diffs = get_file_diff(latest_commit, file_name)\n\n    print(f\"\\nLatest Changes in {file_name}:\\n\")\n\n    if not diffs:\n        print(\"No changes found.\")\n    else:\n        for diff in diffs:\n            print(diff)\n\n    sys.exit(0)\n\n\n# -------------------------\n# 4\ufe0f\u20e3 Explain file logic\n# -------------------------\nif (\"what does\" in question or \"explain\" in question) and file_name:\n    content = get_latest_file_content(file_name)\n\n    if not content:\n        print(f\"File not found: {file_name}\")\n        sys.exit(0)\n\n    prompt = f\"\"\"\nYou are a senior software engineer.\n\nAnalyze this code and explain:\n1. What it does\n2. Logical mistakes\n3. Improvements needed\n\nCode:\n{content}\n\"\"\"\n\n    answer = ask_llm(prompt)\n    print(\"\\nAI Analysis:\\n\")\n    print(answer)\n    sys.exit(0)\n\n\n# -------------------------\n# 5\ufe0f\u20e3 Fallback \u2192 LLM\n# -------------------------\nanswer = ask_llm(question)\nprint(\"\\nAI Response:\\n\")\nprint(answer)\n"
+      }
+    ]
+  },
+  {
+    "commit_id": "LATEST_VERSION",
+    "author": "N/A",
+    "date": "N/A",
+    "message": "Latest file snapshot",
+    "changes": [
+      {
+        "file_path": "git_utils.py",
+        "content": "from git import Repo\n\nrepo = Repo(\".\")\n\n# ---------------------------\n# Resolve filename automatically\n# ---------------------------\ndef resolve_file_path(file_name):\n    for blob in repo.head.commit.tree.traverse():\n        if blob.type == \"blob\":\n            if blob.path.endswith(file_name):\n                return blob.path\n    return None\n\n\n# ---------------------------\n# Latest commits\n# ---------------------------\ndef get_latest_commits(n=5):\n    commits = list(repo.iter_commits())[:n]\n    results = []\n\n    for commit in commits:\n        results.append({\n            \"commit_id\": commit.hexsha,\n            \"author\": commit.author.name,\n            \"date\": str(commit.committed_datetime),\n            \"message\": commit.message.strip()\n        })\n\n    return results\n\n\n# ---------------------------\n# File history\n# ---------------------------\ndef get_file_history(file_name):\n    full_path = resolve_file_path(file_name)\n\n    if not full_path:\n        return []\n\n    commits = list(repo.iter_commits(paths=full_path))\n    history = []\n\n    for commit in commits:\n        history.append({\n            \"commit_id\": commit.hexsha,\n            \"author\": commit.author.name,\n            \"date\": str(commit.committed_datetime),\n            \"message\": commit.message.strip()\n        })\n\n    return history\n\n\n# ---------------------------\n# Latest file content\n# ---------------------------\ndef get_latest_file_content(file_name):\n    full_path = resolve_file_path(file_name)\n\n    if not full_path:\n        return None\n\n    try:\n        blob = repo.head.commit.tree / full_path\n        return blob.data_stream.read().decode(\"utf-8\", errors=\"ignore\")\n    except:\n        return None\n\n\n# ---------------------------\n# File diff for specific commit\n# ---------------------------\ndef get_file_diff(commit_id, file_name):\n    full_path = resolve_file_path(file_name)\n\n    if not full_path:\n        return []\n\n    commit = repo.commit(commit_id)\n    diffs = []\n\n    for parent in commit.parents:\n        for diff in parent.diff(commit, create_patch=True):\n            file_path = diff.a_path if diff.a_path else diff.b_path\n\n            if file_path == full_path:\n                try:\n                    diff_text = diff.diff.decode(\"utf-8\", errors=\"ignore\")\n                except:\n                    diff_text = \"\"\n\n                diffs.append(diff_text)\n\n    return diffs\n"
+      }
+    ]
+  },
+  {
+    "commit_id": "LATEST_VERSION",
+    "author": "N/A",
+    "date": "N/A",
+    "message": "Latest file snapshot",
+    "changes": [
+      {
+        "file_path": "index_repo.py",
+        "content": "import os\nimport json\nfrom git import Repo\n\nrepo = Repo(\".\")\n\ndata = []\n\n# -------------------------\n# 1. Extract Commit History\n# -------------------------\nfor commit in repo.iter_commits():\n    commit_data = {\n        \"commit_id\": commit.hexsha,\n        \"author\": commit.author.name,\n        \"date\": str(commit.committed_datetime),\n        \"message\": commit.message,\n        \"changes\": []\n    }\n\n    for parent in commit.parents:\n        diffs = parent.diff(commit, create_patch=True)\n\n        for diff in diffs:\n            try:\n                diff_text = diff.diff.decode(\"utf-8\", errors=\"ignore\")\n            except:\n                diff_text = \"\"\n\n            # \ud83d\udd25 FIX: Handle new file correctly\n            file_path = diff.a_path if diff.a_path else diff.b_path\n\n            change = {\n                \"file_path\": file_path,\n                \"content\": diff_text\n            }\n\n            commit_data[\"changes\"].append(change)\n\n    data.append(commit_data)\n\n# ---------------------------------\n# 2. Add Latest File Contents (NEW)\n# ---------------------------------\nfor blob in repo.tree().traverse():\n    if blob.type == \"blob\":\n        try:\n            content = blob.data_stream.read().decode(\"utf-8\", errors=\"ignore\")\n        except:\n            content = \"\"\n\n        file_entry = {\n            \"commit_id\": \"LATEST_VERSION\",\n            \"author\": \"N/A\",\n            \"date\": \"N/A\",\n            \"message\": \"Latest file snapshot\",\n            \"changes\": [\n                {\n                    \"file_path\": blob.path,\n                    \"content\": content\n                }\n            ]\n        }\n\n        data.append(file_entry)\n\n# Save everything\nos.makedirs(\"data\", exist_ok=True)\n\nwith open(\"data/repo_data.json\", \"w\") as f:\n    json.dump(data, f, indent=2)\n\nprint(\"Repository indexed successfully with commits + latest file content.\")\n"
+      }
+    ]
+  },
+  {
+    "commit_id": "LATEST_VERSION",
+    "author": "N/A",
+    "date": "N/A",
+    "message": "Latest file snapshot",
+    "changes": [
+      {
+        "file_path": "llm_utils.py",
+        "content": "import subprocess\n\nMODEL_NAME = \"deepseek-coder:6.7b\"\n\ndef ask_llm(prompt):\n    result = subprocess.run(\n        [\"ollama\", \"run\", MODEL_NAME],\n        input=prompt.encode(),\n        stdout=subprocess.PIPE\n    )\n\n    return result.stdout.decode()\n"
+      }
+    ]
+  },
+  {
+    "commit_id": "LATEST_VERSION",
+    "author": "N/A",
+    "date": "N/A",
+    "message": "Latest file snapshot",
+    "changes": [
+      {
+        "file_path": "retriever.py",
+        "content": "import json\nimport faiss\nimport numpy as np\nfrom sentence_transformers import SentenceTransformer\n\n# Load indexed repo data\nwith open(\"data/repo_data.json\", \"r\") as f:\n    repo_data = json.load(f)\n\nmodel = SentenceTransformer(\"all-MiniLM-L6-v2\")\n\ndocuments = []\nmetadata = []\n\nfor entry in repo_data:\n    for change in entry[\"changes\"]:\n        text = f\"\"\"\n        Commit ID: {entry['commit_id']}\n        Author: {entry['author']}\n        Date: {entry['date']}\n        Message: {entry['message']}\n        File: {change['file_path']}\n        Content:\n        {change['content']}\n        \"\"\"\n\n        documents.append(text)\n\n        metadata.append({\n            \"commit_id\": entry[\"commit_id\"],\n            \"author\": entry[\"author\"],\n            \"date\": entry[\"date\"],\n            \"message\": entry[\"message\"],\n            \"file_path\": change[\"file_path\"],\n            \"content\": change[\"content\"]\n        })\n\n# Generate embeddings\nembeddings = model.encode(documents)\n\ndimension = embeddings.shape[1]\nindex = faiss.IndexFlatL2(dimension)\nindex.add(np.array(embeddings).astype(\"float32\"))\n\n# Save index\nfaiss.write_index(index, \"data/index.faiss\")\n\n# Save metadata\nwith open(\"data/meta.json\", \"w\") as f:\n    json.dump(metadata, f)\n\nprint(\"Vector index created successfully (including file contents).\")\n"
+      }
+    ]
+  },
+  {
+    "commit_id": "LATEST_VERSION",
+    "author": "N/A",
+    "date": "N/A",
+    "message": "Latest file snapshot",
+    "changes": [
+      {
+        "file_path": "data/hello.c",
+        "content": "#include<stdio.h>\n\nint main()\n{\n  int a ,b;\n  int sum=0;\n  printf(\"the sum is %d /n\",sum);\n\n}\n"
+      }
+    ]
+  },
+  {
+    "commit_id": "LATEST_VERSION",
+    "author": "N/A",
+    "date": "N/A",
+    "message": "Latest file snapshot",
+    "changes": [
+      {
+        "file_path": "data/hi.c",
+        "content": "#include<stdio.h>\n\nint main()\n{\n  printf(\"Hello everyone This is Vigneshwaran from Spanidea\");\n  printf(\"hi to everyone\");\n}\n"
+      }
+    ]
+  },
+  {
+    "commit_id": "LATEST_VERSION",
+    "author": "N/A",
+    "date": "N/A",
+    "message": "Latest file snapshot",
+    "changes": [
+      {
+        "file_path": "data/task3.c",
+        "content": "#include<stdio.h>\n#include<stdlib.h>\n#include<unistd.h>\n#include<sys/wait.h>\n#include<pthread.h>\n\n\nint main()\n{\n    pid_t pid;\n    int i;\n    char *commands[][3] = { {\"ls\",\"-1\",NULL},{\"pwd\",NULL,NULL},{\"date\",NULL,NULL} };  \n    \n    int n_commands = 3;\n\n    for(i =0;i<n_commands;i++)\n    {\n        pid = fork();\n\n        if(pid < 0 )\n        {\n            printf(\"fork failed\");\n            return 1;\n        }\n        else if(pid ==0)\n        {\n            printf(\"child %d is executing command %s\\n\",getpid(),commands[i][0]);\n                \n            execvp(commands[i][0],commands[i]);\n            /*exec only returns when it is failed so the next line wont be executed*/\n            printf(\"exec failed\");\n            exit(1);\n        }\n       \n    }\n      for(i=0;i<n_commands;i++)\n        {\n            wait(NULL);\n        }\n     printf(\"All child process are completed\\n\");\n        return 0;\n\n}\n"
+      }
+    ]
+  }
+]
