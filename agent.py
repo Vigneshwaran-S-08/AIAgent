@@ -1,126 +1,77 @@
+import requests
+import subprocess
 import sys
-import re
-from git_utils import (
-    get_latest_commits,
-    get_file_history,
-    get_latest_file_content,
-    get_file_diff
-)
-from llm_utils import ask_llm
+import os
+
+OLLAMA_URL = "http://localhost:11434/api/generate"
+MODEL = "llama3"
 
 
-if len(sys.argv) < 2:
-    print("Usage: python agent.py \"your question\"")
-    sys.exit(1)
+def ask_llama(prompt):
+    response = requests.post(
+        OLLAMA_URL,
+        json={
+            "model": MODEL,
+            "prompt": prompt,
+            "stream": False
+        }
+    )
 
-question = sys.argv[1].lower()
-
-
-# -------------------------
-# Extract file name
-# -------------------------
-def extract_file_name(text):
-    match = re.search(r'\b[\w\-]+\.c\b|\b[\w\-]+\.py\b|\b[\w\-]+\.md\b', text)
-    return match.group(0) if match else None
+    return response.json()["response"]
 
 
-file_name = extract_file_name(question)
+def read_file(file_path):
+    if not os.path.exists(file_path):
+        return ""
+    with open(file_path, "r") as f:
+        return f.read()
 
 
-# -------------------------
-# 1️⃣ Latest commits
-# -------------------------
-if "latest commit" in question or "recent commit" in question:
-    commits = get_latest_commits(5)
-
-    print("\nLatest 5 Commits:\n")
-    for c in commits:
-        print("--------------------------------------------------")
-        print("Commit ID:", c["commit_id"])
-        print("Author:", c["author"])
-        print("Date:", c["date"])
-        print("Message:", c["message"])
-    print("--------------------------------------------------")
-    sys.exit(0)
+def write_file(file_path, content):
+    with open(file_path, "w") as f:
+        f.write(content)
 
 
-# -------------------------
-# 2️⃣ Who modified file
-# -------------------------
-if "who modified" in question and file_name:
-    history = get_file_history(file_name)
-
-    if not history:
-        print(f"No history found for {file_name}")
-        sys.exit(0)
-
-    print(f"\nModification History for {file_name}:\n")
-
-    for h in history:
-        print("--------------------------------------------------")
-        print("Commit ID:", h["commit_id"])
-        print("Author:", h["author"])
-        print("Date:", h["date"])
-        print("Message:", h["message"])
-    print("--------------------------------------------------")
-    sys.exit(0)
+def git_commit(message):
+    subprocess.run(["git", "add", "."])
+    subprocess.run(["git", "commit", "-m", message])
 
 
-# -------------------------
-# 3️⃣ What changed in file
-# -------------------------
-if "what changed" in question and file_name:
-    history = get_file_history(file_name)
+def main():
+    if len(sys.argv) < 2:
+        print("Usage: python3 agent.py \"Your request\"")
+        return
 
-    if not history:
-        print(f"No history found for {file_name}")
-        sys.exit(0)
+    user_query = sys.argv[1]
 
-    latest_commit = history[0]["commit_id"]
-    diffs = get_file_diff(latest_commit, file_name)
+    # Example: operate on hello.c
+    file_name = "hello.c"
 
-    print(f"\nLatest Changes in {file_name}:\n")
-
-    if not diffs:
-        print("No changes found.")
-    else:
-        for diff in diffs:
-            print(diff)
-
-    sys.exit(0)
-
-
-# -------------------------
-# 4️⃣ Explain file logic
-# -------------------------
-if ("what does" in question or "explain" in question) and file_name:
-    content = get_latest_file_content(file_name)
-
-    if not content:
-        print(f"File not found: {file_name}")
-        sys.exit(0)
+    file_content = read_file(file_name)
 
     prompt = f"""
-You are a senior software engineer.
+You are a precise coding assistant.
 
-Analyze this code and explain:
-1. What it does
-2. Logical mistakes
-3. Improvements needed
+Rules:
+- Return only updated code.
+- No explanations.
+- Keep code clean.
 
-Code:
-{content}
+Current file content:
+{file_content}
+
+User request:
+{user_query}
 """
 
-    answer = ask_llm(prompt)
-    print("\nAI Analysis:\n")
-    print(answer)
-    sys.exit(0)
+    ai_output = ask_llama(prompt)
+
+    write_file(file_name, ai_output)
+
+    git_commit(f"AI update: {user_query}")
+
+    print("\nUpdated and committed successfully.\n")
 
 
-# -------------------------
-# 5️⃣ Fallback → LLM
-# -------------------------
-answer = ask_llm(question)
-print("\nAI Response:\n")
-print(answer)
+if __name__ == "__main__":
+    main()
