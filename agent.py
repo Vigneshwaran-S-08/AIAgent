@@ -117,6 +117,45 @@ Code:
     print(answer)
     sys.exit(0)
 
+# -------------------------
+# 6️⃣ Create / Modify File
+# -------------------------
+if any(word in question for word in ["create", "add", "write", "update", "modify"]) and file_name:
+
+    # Get existing content (if file exists)
+    existing_content = get_latest_file_content(file_name)
+
+    prompt = f"""
+You are a precise coding assistant.
+
+Rules:
+- Return ONLY raw code.
+- No explanation.
+- Complete file content.
+- If file does not exist, create full new file.
+
+Current file content:
+{existing_content if existing_content else "File does not exist."}
+
+User request:
+{question}
+"""
+
+    generated_code = ask_llm(prompt)
+
+    # Write file
+    with open(file_name, "w") as f:
+        f.write(generated_code)
+
+    # Git add + commit
+    import subprocess
+    subprocess.run(["git", "add", file_name])
+    subprocess.run(["git", "commit", "-m", f"AI update: {question}"])
+
+    print(f"\n✅ {file_name} updated and committed successfully.\n")
+    sys.exit(0)
+
+
 
 # -------------------------
 # 5️⃣ Fallback → LLM
