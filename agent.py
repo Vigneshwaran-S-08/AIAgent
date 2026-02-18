@@ -1,171 +1,126 @@
-import requests
-import subprocess
 import sys
-import os
 import re
-
-OLLAMA_URL = "http://localhost:11434/api/generate"
-MODEL = "llama3"
-
-
-# ----------------------------
-# LLM CALL
-# ----------------------------
-def ask_llama(prompt):
-    response = requests.post(
-        OLLAMA_URL,
-        json={
-            "model": MODEL,
-            "prompt": prompt,
-            "stream": False
-        }
-    )
-    return response.json()["response"].strip()
+from git_utils import (
+    get_latest_commits,
+    get_file_history,
+    get_latest_file_content,
+    get_file_diff
+)
+from llm_utils import ask_llm
 
 
-# ----------------------------
-# INTENT DETECTION
-# ----------------------------
-def detect_intent(query):
-    q = query.lower()
+if len(sys.argv) < 2:
+    print("Usage: python agent.py \"your question\"")
+    sys.exit(1)
 
-    if "who modified" in q or "history" in q or "commit" in q:
-        return "history"
-
-    if "explain" in q or "reason" in q or "what does" in q:
-        return "explain"
-
-    if "create" in q or "add" in q or "modify" in q or "update" in q:
-        return "modify"
-
-    return "unknown"
+question = sys.argv[1].lower()
 
 
-# ----------------------------
-# FILE DETECTION
-# ----------------------------
-def detect_filename(query):
-    match = re.search(r'\b[\w\-]+\.(c|cpp|py|h|java)\b', query)
-    if match:
-        return match.group(0)
-    return None
+# -------------------------
+# Extract file name
+# -------------------------
+def extract_file_name(text):
+    match = re.search(r'\b[\w\-]+\.c\b|\b[\w\-]+\.py\b|\b[\w\-]+\.md\b', text)
+    return match.group(0) if match else None
 
 
-# ----------------------------
-# FILE OPERATIONS
-# ----------------------------
-def read_file(file_path):
-    if os.path.exists(file_path):
-        with open(file_path, "r") as f:
-            return f.read()
-    return ""
+file_name = extract_file_name(question)
 
 
-def write_file(file_path, content):
-    with open(file_path, "w") as f:
-        f.write(content)
+# -------------------------
+# 1️⃣ Latest commits
+# -------------------------
+if "latest commit" in question or "recent commit" in question:
+    commits = get_latest_commits(5)
+
+    print("\nLatest 5 Commits:\n")
+    for c in commits:
+        print("--------------------------------------------------")
+        print("Commit ID:", c["commit_id"])
+        print("Author:", c["author"])
+        print("Date:", c["date"])
+        print("Message:", c["message"])
+    print("--------------------------------------------------")
+    sys.exit(0)
 
 
-# ----------------------------
-# GIT OPERATIONS
-# ----------------------------
-def git_commit(file_name, message):
-    subprocess.run(["git", "add", file_name])
-    subprocess.run(["git", "commit", "-m", message])
+# -------------------------
+# 2️⃣ Who modified file
+# -------------------------
+if "who modified" in question and file_name:
+    history = get_file_history(file_name)
+
+    if not history:
+        print(f"No history found for {file_name}")
+        sys.exit(0)
+
+    print(f"\nModification History for {file_name}:\n")
+
+    for h in history:
+        print("--------------------------------------------------")
+        print("Commit ID:", h["commit_id"])
+        print("Author:", h["author"])
+        print("Date:", h["date"])
+        print("Message:", h["message"])
+    print("--------------------------------------------------")
+    sys.exit(0)
 
 
-def get_file_history(filename):
-    result = subprocess.run(
-        ["git", "log",
-         "--pretty=format:Commit ID: %H%nAuthor: %an%nDate: %ad%nMessage: %s%n---------------------------------------",
-         "--", filename],
-        capture_output=True,
-        text=True
-    )
-    return result.stdout if result.stdout else "No history found."
+# -------------------------
+# 3️⃣ What changed in file
+# -------------------------
+if "what changed" in question and file_name:
+    history = get_file_history(file_name)
+
+    if not history:
+        print(f"No history found for {file_name}")
+        sys.exit(0)
+
+    latest_commit = history[0]["commit_id"]
+    diffs = get_file_diff(latest_commit, file_name)
+
+    print(f"\nLatest Changes in {file_name}:\n")
+
+    if not diffs:
+        print("No changes found.")
+    else:
+        for diff in diffs:
+            print(diff)
+
+    sys.exit(0)
 
 
-# ----------------------------
-# CODE EXPLANATION
-# ----------------------------
-def explain_file(filename):
-    content = read_file(filename)
+# -------------------------
+# 4️⃣ Explain file logic
+# -------------------------
+if ("what does" in question or "explain" in question) and file_name:
+    content = get_latest_file_content(file_name)
 
     if not content:
-        return "File not found or empty."
+        print(f"File not found: {file_name}")
+        sys.exit(0)
 
     prompt = f"""
-Explain the following code clearly and give reasoning of what it does.
+You are a senior software engineer.
+
+Analyze this code and explain:
+1. What it does
+2. Logical mistakes
+3. Improvements needed
 
 Code:
 {content}
 """
 
-    return ask_llama(prompt)
+    answer = ask_llm(prompt)
+    print("\nAI Analysis:\n")
+    print(answer)
+    sys.exit(0)
 
 
-# ----------------------------
-# MAIN LOGIC
-# ----------------------------
-def main():
-
-    if len(sys.argv) < 2:
-        print("Usage: python3 agent.py \"Your request\"")
-        return
-
-    user_query = sys.argv[1]
-    intent = detect_intent(user_query)
-    file_name = detect_filename(user_query)
-
-    if not file_name:
-        print("❌ No filename detected in query.")
-        return
-
-    # ---------------- HISTORY MODE ----------------
-    if intent == "history":
-        history = get_file_history(file_name)
-        print(f"\n📜 Modification History for {file_name}:\n")
-        print(history)
-        return
-
-    # ---------------- EXPLAIN MODE ----------------
-    if intent == "explain":
-        explanation = explain_file(file_name)
-        print(f"\n🧠 Code Explanation for {file_name}:\n")
-        print(explanation)
-        return
-
-    # ---------------- MODIFY / CREATE MODE ----------------
-    if intent == "modify":
-        existing_content = read_file(file_name)
-
-        prompt = f"""
-You are a precise coding assistant.
-
-Rules:
-- Return ONLY raw code.
-- No explanation.
-- Complete file content.
-- If file does not exist, create full new file.
-
-Current file content:
-{existing_content}
-
-User request:
-{user_query}
-"""
-
-        ai_output = ask_llama(prompt)
-
-        write_file(file_name, ai_output)
-
-        git_commit(file_name, f"AI update: {user_query}")
-
-        print(f"\n✅ {file_name} updated and committed successfully.\n")
-        return
-
-    print("❌ Could not understand the request.")
-
-
-if __name__ == "__main__":
-    main()
+# -------------------------
+# 5️⃣ Fallback → LLM
+# -------------------------
+answer = ask_llm(question)
+print("\nAI Response:\n")
+print(answer)
